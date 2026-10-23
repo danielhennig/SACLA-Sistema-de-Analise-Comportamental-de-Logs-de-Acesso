@@ -79,6 +79,19 @@ ablation:
   auto_explain_group: sem_auto_explain
   auto_explain_rules: [volume, dml_volume]      # regras que usam linhas (config/rules.yaml)
 
+# Tráfego não estacionário (Fase 8; pré-registro em docs/decisoes.md, D55). Cada semente é
+# simulada sem e com as mudanças de rotina de config/drift.yaml; a configuração do experimento
+# fica congelada e cada simulação usa o protocolo da robustez (limiar da própria validação).
+drift:
+  simulation_seeds: [101, 202, 303, 404, 505, 606, 707, 808, 909, 1010]
+  results_dir: results/deriva
+  # did_t:    diferença das diferenças por semente, [a com − a sem] − [b com − b sem], teste t
+  #           pareado nas sementes (a simulação é a unidade)
+  # mcnemar:  agregado das simulações com deriva, McNemar exato (como H1 na Fase 7)
+  hypotheses:
+    - {id: H4, test: did_t, metric: f1, a: isolation_forest, b: regras}
+    - {id: H5, test: mcnemar, metric: scenarios, subset: all, a: if_mais_regras, b: regras}
+
 results_dir: results/experimentos
 models_dir: data/models              # modelos treinados (não versionados)
 

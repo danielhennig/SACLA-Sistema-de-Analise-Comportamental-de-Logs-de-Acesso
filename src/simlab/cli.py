@@ -12,6 +12,7 @@ import psycopg
 from sacla.config import ConfigError, setup_logging
 from simlab.anomalies import PlacementError
 from simlab.bench import BenchSettings, run_bench
+from simlab.drift import drift_suffix
 from simlab.executor import ExecutionError
 from simlab.lab import load_experiment, load_lab
 from simlab.profiles import load_profiles
@@ -42,6 +43,11 @@ def main(argv: list[str] | None = None) -> int:
         p_sim = sub.add_parser(name, help=help_text)
         p_sim.add_argument("--seed", type=int, help="semente (padrão: experiment.yaml)")
         p_sim.add_argument("--days", type=int, help="dias simulados (padrão: experiment.yaml)")
+        p_sim.add_argument(
+            "--drift",
+            action="store_true",
+            help="com mudanças legítimas de rotina (config/drift.yaml, Fase 8)",
+        )
     args = parser.parse_args(argv)
     setup_logging()
 
@@ -58,7 +64,8 @@ def main(argv: list[str] | None = None) -> int:
             run_bench(lab, BenchSettings.from_mapping(_section(experiment, "bench")))
             return 0
         if args.command in ("simulate", "retime"):
-            settings = SimulationSettings.from_experiment(experiment, args.seed, args.days)
+            suffix = drift_suffix() if args.drift else ""
+            settings = SimulationSettings.from_experiment(experiment, args.seed, args.days, suffix)
             if args.command == "simulate":
                 run_simulation(lab, load_profiles(), settings)
             else:

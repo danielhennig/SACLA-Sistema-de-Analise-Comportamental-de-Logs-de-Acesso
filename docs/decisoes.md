@@ -1197,3 +1197,86 @@ Os demais ficam iguais, com variação de até 1 ponto:
    - Isso baratearia o custo, mas subestimaria as linhas lidas. Não foi avaliado.
 5. **Limite:** o F1 de cada variante usa o melhor limiar da própria validação, o que é
    otimista. Por isso a comparação vale entre variantes, e não como estimativa de desempenho.
+
+## 13. Tráfego normal não estacionário (Fase 8)
+
+**D55 — Pré-registro: mudanças legítimas de rotina.** Escrito e versionado ANTES de qualquer
+simulação com deriva. No `git log`, este commit vem antes do primeiro resultado com deriva.
+
+*Motivação.* A ameaça à validade que mais pesava (metodologia, seção 11) era o tráfego
+regular demais. Os usuários repetem a mesma rotina por quatro semanas, o que favorece regras
+de "máximo do usuário" e de "hora inédita". A Fase 8 cria um cenário adicional em que a rotina
+muda de forma legítima. Ele não substitui os resultados anteriores, e o modelo continua
+congelado (D46).
+
+*Catálogo de mudanças* (`config/drift.yaml`). Foi fixado pelo realismo e não será ajustado
+depois de ver os detectores. A coluna "afeta" diz, antes de qualquer dado, que detector cada
+mudança deve atingir, para mostrar que o desenho não favorece um lado.
+
+| Mudança | Quem e quanto | Afeta no IF | Afeta nas regras |
+|---|---|---|---|
+| Troca de turno (manhã ↔ tarde) | 2 atendentes, permanente | hora, raridade da hora | `hora_inedita` |
+| Férias | 2 entre atendentes, gerentes e analistas, 7 a 9 dias | histórico menor | — |
+| Pico de movimento (1,5× a 2,5× a taxa) | 2 entre atendentes e serviço web, 3 a 7 dias | comandos | `rajada` |
+| Crescimento (+10% de taxa por semana) | serviço web, permanente | comandos | `rajada` |
+| Home office (50% externa) | 2 entre gerentes e analistas, permanente | IPs, IP inédito | — |
+| Nova rotina (relatório semanal em `city`, `country` e `store`) | 1 analista, permanente | tabelas e formatos inéditos | talvez `volume` |
+| Plantão num sábado | 1 gerente, 1 dia | fim de semana, hora | `hora_inedita` |
+
+- **Início de cada mudança:** sorteado entre os dias 8 e 27. Cerca de 1/3 começa no treino,
+  1/3 na validação e 1/3 no teste.
+- **Sem sobreposição:** duas mudanças temporárias do mesmo usuário (férias, pico, plantão) não
+  se sobrepõem, porque um pico durante as férias não teria efeito.
+- **Sorteio independente:** cada mudança tem gerador próprio (`"{semente}:drift:{mudança}"`) e
+  não consome o gerador do tráfego normal nem o das anomalias.
+- **Rótulos:** as janelas afetadas continuam **normais** (rótulo 0). O plano sorteado vai para
+  `drift.csv`, só para a análise. Ele não entra nos eventos do executor, no log nem nos
+  atributos.
+- **Anomalias "fora do horário":** respeitam a rotina do dia (turno novo, plantão, ausência).
+  Um acesso durante as férias conta como fora do horário.
+- **Sem `--drift`, nada muda.** A agenda gerada (eventos e manifesto) tem o mesmo hash SHA-256
+  com o código do `master` e com o desta fase (sementes 42 e 606, 28 dias, pools sintéticos).
+  Um teste (`tests/test_drift.py`) também garante isso.
+
+*Simulações, pareadas por semente.* Cada uma das 10 sementes é simulada sem e com deriva
+(`sim-s{semente}-28d` e `sim-s{semente}-28d-deriva`):
+- 101, 202, 303, 404 e 505: as confirmatórias da Fase 7, que já têm a versão sem deriva;
+- 606, 707, 808, 909 e 1010: novas.
+A mesma semente dá o mesmo tráfego até a primeira mudança. Depois, o tráfego do usuário
+afetado e a posição de parte das anomalias mudam. O par controla a semente, não cada evento.
+
+*Protocolo:* o mesmo da robustez (D36). A configuração `ne200-ms1024-mf0.5-log1` e as regras
+ficam congeladas; em cada simulação, só o limiar vem da validação dela, e o teste é usado uma
+vez.
+
+*Hipóteses* (`drift.hypotheses` em `config/model.yaml`). Testes bicaudais, α = 0,05, Holm
+sobre as duas:
+- **H4 (principal): a perda de F1 com deriva difere entre o IF ajustado e as regras.**
+  - Medida, por semente: Δ = [F1 do IF com − sem] − [F1 das regras com − sem], com o F1 do
+    IF como média das 10 sementes do modelo.
+  - Teste t pareado nas 10 sementes, com a simulação como unidade. Inclui a variação entre
+    simulações, que o bootstrap da Fase 7 não incluía.
+  - Expectativa: o IF perde menos (Δ > 0). Os atributos relativos ao histórico (D54)
+    comparam o usuário consigo mesmo, e o limiar do IF vem de uma validação que já pode
+    conter parte da deriva.
+  - Há incerteza real nessa expectativa: home office e nova rotina atingem só o IF.
+- **H5: com deriva, IF ∪ regras ainda detecta mais cenários que as regras.**
+  - Repete H1 (D53) no agregado das 10 simulações com deriva.
+  - Teste: McNemar exato, com a maioria das sementes do modelo.
+
+*Descritivo (sem teste):*
+- precisão, recall, F1 e cenários detectados, com e sem deriva, por detector, com intervalos
+  de 95% por bootstrap (como na D52);
+- diferença das diferenças também para precisão e cenários detectados;
+- **alarmes falsos por mudança:** fração das janelas normais de teste afetadas por cada
+  mudança (usuário e período no `drift.csv`) que cada detector sinaliza;
+- a taxa de alarme falso nas janelas não afetadas, como referência.
+
+*Comando:* `python tasks.py drift --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1`, com
+saída em `results/deriva/<exp_id>/`. Ele simula os pares que faltam e depois avalia.
+
+*Compromisso:*
+- os resultados são relatados como saírem;
+- nenhuma mudança do catálogo é ajustada depois de ver detectores;
+- durante o desenvolvimento, as simulações de conferência do gerador só verificaram a
+  validade da simulação, nunca saídas de detector.

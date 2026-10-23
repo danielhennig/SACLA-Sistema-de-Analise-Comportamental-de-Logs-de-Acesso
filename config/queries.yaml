@@ -238,6 +238,19 @@ actions:
         SELECT rental_id, rental_date, inventory_id, customer_id, return_date
         FROM rental WHERE rental_date >= %(since)s::date ORDER BY rental_date
 
+  # Fase 8 (config/drift.yaml, mudança nova_rotina): relatório novo do analista, em tabelas
+  # permitidas ao papel e que nenhuma outra ação dele usa (city, country, store).
+  relatorio_lojas_cidades:
+    statements:
+      - >-
+        SELECT co.country, count(*) AS cidades FROM city ci
+        JOIN country co ON co.country_id = ci.country_id
+        GROUP BY co.country ORDER BY cidades DESC LIMIT 20
+      - >-
+        SELECT s.store_id, count(i.inventory_id) AS itens FROM store s
+        JOIN inventory i ON i.store_id = s.store_id
+        GROUP BY s.store_id ORDER BY itens DESC LIMIT 20
+
   # --- Rotina noturna (serviço batch) ------------------------------------------------------
   rotina_noturna:
     params:

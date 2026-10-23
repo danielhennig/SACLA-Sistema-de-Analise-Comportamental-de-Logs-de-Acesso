@@ -20,6 +20,7 @@ from simlab.anomalies import load_anomalies
 from simlab.behavior import load_behaviors
 from simlab.catalog import load_catalog
 from simlab.collect import collect_logs
+from simlab.drift import DRIFT_FILE, load_drift, plan_drift
 from simlab.executor import execute_schedule, execution_summary
 from simlab.ids import fetch_id_pools, pools_digest
 from simlab.lab import LabConfig
@@ -53,7 +54,12 @@ def run_simulation(lab: LabConfig, profiles: Profiles, settings: SimulationSetti
     behaviors = load_behaviors(profiles, catalog)
     anomalies = load_anomalies(profiles, behaviors, catalog)
     ids = fetch_id_pools(lab, catalog.id_pools)
-    schedule = build_schedule(settings, profiles, behaviors, catalog, anomalies, ids)
+    drift = None
+    if settings.drift:
+        config = load_drift(profiles, behaviors, catalog)
+        drift = plan_drift(config, profiles, behaviors, settings.period, settings.seed)
+        log.info("deriva: %d mudanças de rotina sorteadas", len(drift.changes))
+    schedule = build_schedule(settings, profiles, behaviors, catalog, anomalies, ids, drift)
     summary = write_schedule(schedule, settings, run_dir, pools_digest(ids))
     timings["agenda_s"] = time.monotonic() - started
     log.info("agenda gravada em %s: %s", run_dir, json.dumps(summary["events_by_kind"]))
@@ -103,7 +109,7 @@ def run_simulation(lab: LabConfig, profiles: Profiles, settings: SimulationSetti
     _print_report(report, retime)
     results = settings.results_run_dir
     results.mkdir(parents=True, exist_ok=True)
-    for name in VERSIONED_FILES:
+    for name in (*VERSIONED_FILES, DRIFT_FILE) if settings.drift else VERSIONED_FILES:
         shutil.copyfile(run_dir / name, results / name)
     log.info("evidências copiadas para %s", results.relative_to(PROJECT_ROOT))
     if not manifest_check["passed"]:

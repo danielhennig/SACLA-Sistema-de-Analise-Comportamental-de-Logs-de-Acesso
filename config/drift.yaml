@@ -1,0 +1,52 @@
+# Fase 8: mudanças legítimas de rotina (tráfego normal não estacionário).
+# Usado só com `simulate --drift`; sem isso, a simulação é idêntica à das fases anteriores.
+# Pré-registro em docs/decisoes.md (D55): este catálogo foi fixado pelo realismo, antes de
+# qualquer simulação com deriva, e não é ajustado depois de ver os detectores.
+#
+# Cada mudança sorteia `users` usuários distintos entre os papéis elegíveis e, para cada um,
+# o dia de início em start_day (1 = primeiro dia simulado). As permanentes valem do início até
+# o fim do período; as temporárias duram `days` dias corridos. As janelas afetadas continuam
+# NORMAIS (rótulo 0): o plano sorteado vai para drift.csv, só para a análise.
+
+run_suffix: "-deriva"         # sim-s101-28d -> sim-s101-28d-deriva
+start_day: [8, 27]            # depois da 1ª semana: ~1/3 no treino, ~1/3 na validação, ~1/3 no teste
+# Duas mudanças temporárias (férias, pico, plantão) do mesmo usuário não se sobrepõem: um pico
+# durante as férias não teria efeito. O início é sorteado de novo até caber.
+max_attempts: 100
+
+changes:
+  troca_turno:                # passa a trabalhar no outro turno do papel (manhã <-> tarde)
+    roles: [atendente]
+    users: 2
+
+  ferias:                     # nenhum acesso no período (afastamento ou férias)
+    roles: [atendente, gerente, analista]
+    users: 2
+    days: [7, 9]
+
+  pico_movimento:             # promoção ou temporada: mais ações por hora
+    roles: [atendente, servico_app]
+    users: 2
+    days: [3, 7]
+    rate_multiplier: [1.5, 2.5]
+
+  crescimento:                # mais clientes na aplicação web: a taxa cresce toda semana
+    roles: [servico_app]
+    users: 1
+    weekly_growth: 0.10
+
+  home_office:                # metade dos dias pela rede externa
+    roles: [gerente, analista]
+    users: 2
+    networks: {lan: 0.5, externa: 0.5}
+
+  nova_rotina:                # novo relatório semanal, em tabelas permitidas e nunca usadas antes
+    roles: [analista]
+    users: 1
+    weekly: {weekday: 2, time: "15:00", jitter_min: 40, action: relatorio_lojas_cidades,
+             repeat: [1, 3], spacing_min: [2, 10]}
+
+  plantao:                    # trabalha um sábado (o primeiro a partir do dia sorteado), no turno
+    roles: [gerente]
+    users: 1
+    weekday: 5

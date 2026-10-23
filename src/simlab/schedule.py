@@ -2,7 +2,8 @@
 
 - events.parquet: o que o executor faz, em ordem (sem nenhuma informação de rótulo);
 - manifest.csv: ground truth dos cenários anômalos (usuário, início, fim, tipo, intensidade);
-- run.json: parâmetros da execução, limites dos splits e hashes da configuração.
+- run.json: parâmetros da execução, limites dos splits e hashes da configuração;
+- drift.csv (só com deriva, Fase 8): mudanças de rotina sorteadas, para a análise.
 """
 
 from __future__ import annotations
@@ -23,12 +24,14 @@ from sacla.config import CONFIG_DIR, PROJECT_ROOT, ConfigError
 from simlab.anomalies import SPLITS, AnomalyConfig, AnomalyInjector, Scenario, Split
 from simlab.behavior import BehaviorConfig, Period, generate_normal
 from simlab.catalog import Catalog, IdPools
+from simlab.drift import DRIFT_FILE, DriftPlan
 from simlab.profiles import Profiles
 from simlab.timeline import STATEMENT, Event, Timeline
 
 log = logging.getLogger(__name__)
 
 CONFIG_FILES = ("experiment.yaml", "profiles.yaml", "queries.yaml", "anomalies.yaml")
+DRIFT_CONFIG = "drift.yaml"
 
 
 @dataclass(frozen=True)
@@ -47,10 +50,15 @@ class SimulationSettings:
     retime_reorder_window: int
     results_dir: Path
     split_fractions: dict[str, float]
+    run_suffix: str = ""  # com deriva (Fase 8): config/drift.yaml, run_suffix
 
     @classmethod
     def from_experiment(
-        cls, experiment: dict[str, Any], seed: int | None = None, days: int | None = None
+        cls,
+        experiment: dict[str, Any],
+        seed: int | None = None,
+        days: int | None = None,
+        run_suffix: str = "",
     ) -> SimulationSettings:
         try:
             sim, split = experiment["simulation"], experiment["split"]
@@ -70,6 +78,7 @@ class SimulationSettings:
                 retime_reorder_window=int(sim["retime_reorder_window"]),
                 results_dir=PROJECT_ROOT / sim["results_dir"],
                 split_fractions=fractions,
+                run_suffix=run_suffix,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ConfigError(f"seções simulation/split inválidas: {exc!r}") from exc
@@ -80,8 +89,12 @@ class SimulationSettings:
         return settings
 
     @property
+    def drift(self) -> bool:
+        return bool(self.run_suffix)
+
+    @property
     def run_id(self) -> str:
-        return self.run_id_template.format(seed=self.seed, days=self.days)
+        return self.run_id_template.format(seed=self.seed, days=self.days) + self.run_suffix
 
     @property
     def results_run_dir(self) -> Path:
@@ -102,6 +115,7 @@ class Schedule:
     scenarios: list[Scenario]
     splits: dict[str, Split]
     normal_statements: int
+    drift: DriftPlan | None = None
 
 
 def compute_splits(period: Period, fractions: dict[str, float]) -> dict[str, Split]:
@@ -121,11 +135,16 @@ def build_schedule(
     catalog: Catalog,
     anomalies: AnomalyConfig,
     ids: IdPools,
+    drift: DriftPlan | None = None,
 ) -> Schedule:
+    """Agenda completa; com `drift` (Fase 8), a rotina de alguns usuários muda no período."""
     period = settings.period
     splits = compute_splits(period, settings.split_fractions)
     timeline = Timeline()
-    activity = generate_normal(timeline, profiles, behaviors, catalog, ids, period, settings.seed)
+    routines = drift.routines if drift is not None else None
+    activity = generate_normal(
+        timeline, profiles, behaviors, catalog, ids, period, settings.seed, routines
+    )
     injector = AnomalyInjector(
         timeline,
         profiles,
@@ -137,6 +156,7 @@ def build_schedule(
         anomalies,
         splits,
         settings.seed,
+        routines,
     )
     scenarios = injector.inject(scale=settings.days / settings.nominal_days)
     events = timeline.sorted_events()
@@ -146,7 +166,7 @@ def build_schedule(
         activity.statements,
         len(scenarios),
     )
-    return Schedule(events, scenarios, splits, activity.statements)
+    return Schedule(events, scenarios, splits, activity.statements, drift)
 
 
 def events_frame(events: list[Event]) -> pd.DataFrame:
@@ -206,12 +226,17 @@ def write_schedule(
     run_dir.mkdir(parents=True, exist_ok=True)
     events_frame(schedule.events).to_parquet(run_dir / "events.parquet", index=False)
     manifest_frame(schedule.scenarios).to_csv(run_dir / "manifest.csv", index=False)
+    config_files = (*CONFIG_FILES, DRIFT_CONFIG) if schedule.drift is not None else CONFIG_FILES
+    if schedule.drift is not None:
+        frame = schedule.drift.frame(settings.period)
+        frame.to_csv(run_dir / DRIFT_FILE, index=False, lineterminator="\n")
     run_info = {
         "run_id": settings.run_id,
         "seed": settings.seed,
         "start_date": settings.start_date.isoformat(),
         "days": settings.days,
         "timezone": settings.timezone,
+        "drift": schedule.drift is not None,
         "splits": {
             name: {
                 "start_ms": s.start_ms,
@@ -224,7 +249,7 @@ def write_schedule(
         "id_pools_sha256": ids_digest,
         "config_sha256": {
             name: hashlib.sha256((CONFIG_DIR / name).read_bytes()).hexdigest()
-            for name in CONFIG_FILES
+            for name in config_files
         },
     }
     (run_dir / "run.json").write_text(json.dumps(run_info, indent=2) + "\n", encoding="utf-8")

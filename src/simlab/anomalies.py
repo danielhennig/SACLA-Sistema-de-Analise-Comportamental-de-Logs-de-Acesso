@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import time, timedelta
 from pathlib import Path
@@ -21,9 +22,11 @@ from sacla.config import CONFIG_DIR, ConfigError, load_yaml
 from simlab.behavior import (
     MS_PER_HOUR,
     MS_PER_MIN,
+    SAME_ROUTINE,
     BehaviorConfig,
     NormalActivity,
     Period,
+    Routine,
     pick_weighted,
 )
 from simlab.catalog import Catalog, IdPools
@@ -237,6 +240,7 @@ class AnomalyInjector:
         config: AnomalyConfig,
         splits: dict[str, Split],
         seed: int,
+        routines: Mapping[str, Routine] | None = None,
     ) -> None:
         self.tl = timeline
         self.profiles = profiles
@@ -248,6 +252,7 @@ class AnomalyInjector:
         self.config = config
         self.splits = splits
         self.rng = random.Random(f"{seed}:anomalies")
+        self.routines = routines or {}
         self.taken: dict[str, list[tuple[int, int]]] = {u.name: [] for u in profiles.users}
         for atype in config.types.values():
             for role, pool in (atype.page_pools or {}).items():
@@ -342,19 +347,22 @@ class AnomalyInjector:
         """Intervalos de início possíveis em horários em que o usuário nunca trabalha.
 
         Em dias de trabalho, o período ocupado vai de (início do turno - margem) até
-        (fim do turno + hora extra máxima + margem); dias de folga são inteiros livres.
+        (fim do turno + hora extra máxima + margem); dias de folga são inteiros livres. Com
+        deriva (Fase 8), vale a rotina do dia: turno novo, plantão e ausência.
         """
         behavior = self.behaviors.behaviors[user.role]
         if behavior.shifts is None or user.shift is None:
             return []
-        shift_start, shift_end = behavior.shifts[user.shift]
+        routine = self.routines.get(user.name, SAME_ROUTINE)
         margin = round(behavior.off_hours_margin_min * MS_PER_MIN)
         overtime = round(behavior.overtime_extra_min[1] * MS_PER_MIN)
         windows = []
         for day in self.period.dates():
             day_start = self.period.local_ms(day, time(0, 0))
             day_end = self.period.local_ms(day + timedelta(days=1), time(0, 0))
-            if day.weekday() in behavior.weekdays:
+            works = day.weekday() in behavior.weekdays or routine.on_duty(day)
+            if works and not routine.absent(day):
+                shift_start, shift_end = behavior.shifts[routine.shift(day, user.shift)]
                 busy_start = self.period.local_ms(day, shift_start) - margin
                 busy_end = self.period.local_ms(day, shift_end) + overtime + margin
                 windows += [(day_start, busy_start), (busy_end, day_end)]

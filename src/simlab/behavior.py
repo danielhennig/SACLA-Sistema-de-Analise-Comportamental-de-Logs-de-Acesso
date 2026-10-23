@@ -7,11 +7,15 @@ Três tipos de comportamento:
 - batch: uma rotina por dia em horário fixo.
 Cada usuário usa um gerador aleatório próprio, derivado da semente e do nome, para que mudar
 um usuário (ou as anomalias) não altere o tráfego dos demais.
+
+A rotina de cada dia pode ser ajustada por uma `Routine` (Fase 8, mudanças legítimas de rotina
+em simlab/drift.py). A rotina padrão não muda nada: sem deriva, a agenda é a mesma de antes.
 """
 
 from __future__ import annotations
 
 import random
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -71,6 +75,34 @@ class Behavior:
         if self.kind == "service":
             return self.actions_per_hour * self.hourly_profile[local_hour]
         return self.actions_per_hour
+
+
+class Routine:
+    """Ajustes da rotina de um usuário num dia. Esta classe não ajusta nada; a deriva da Fase 8
+    (simlab/drift.py) sobrescreve os métodos para os usuários afetados."""
+
+    def absent(self, day: date) -> bool:
+        return False
+
+    def on_duty(self, day: date) -> bool:
+        """Trabalha neste dia mesmo fora dos dias habituais (plantão)."""
+        return False
+
+    def shift(self, day: date, default: str) -> str:
+        return default
+
+    def rate_multiplier(self, day: date) -> float:
+        return 1.0
+
+    def networks(self, day: date, default: dict[str, float]) -> dict[str, float]:
+        return default
+
+    def weekly(self, day: date) -> tuple[WeeklyTask, ...]:
+        """Tarefas semanais além das do papel."""
+        return ()
+
+
+SAME_ROUTINE = Routine()
 
 
 @dataclass(frozen=True)
@@ -194,17 +226,7 @@ def _parse_behavior(role: str, spec: dict[str, Any]) -> Behavior:
             overtime_probability=float(overtime.get("probability", 0.0)),
             overtime_extra_min=_pair(overtime.get("extra_min", [0, 0]), float),
             off_hours_margin_min=float(spec["off_hours_margin_min"]),
-            weekly=tuple(
-                WeeklyTask(
-                    weekday=int(w["weekday"]),
-                    time=_time(w["time"]),
-                    jitter_min=float(w["jitter_min"]),
-                    action=str(w["action"]),
-                    repeat=_pair(w["repeat"], int),
-                    spacing_min=_pair(w["spacing_min"], float),
-                )
-                for w in spec.get("weekly") or []
-            ),
+            weekly=tuple(parse_weekly(w) for w in spec.get("weekly") or []),
         )
     if kind == "service":
         profile = tuple(float(x) for x in spec["hourly_profile"])
@@ -226,6 +248,17 @@ def _parse_behavior(role: str, spec: dict[str, Any]) -> Behavior:
             session_padding_s=float(spec["session_padding_s"]),
         )
     raise ConfigError(f"kind desconhecido para {role}: {kind}")
+
+
+def parse_weekly(spec: dict[str, Any]) -> WeeklyTask:
+    return WeeklyTask(
+        weekday=int(spec["weekday"]),
+        time=_time(spec["time"]),
+        jitter_min=float(spec["jitter_min"]),
+        action=str(spec["action"]),
+        repeat=_pair(spec["repeat"], int),
+        spacing_min=_pair(spec["spacing_min"], float),
+    )
 
 
 def _time(value: Any) -> time:
@@ -257,12 +290,17 @@ def generate_normal(
     ids: IdPools,
     period: Period,
     seed: int,
+    routines: Mapping[str, Routine] | None = None,
 ) -> NormalActivity:
+    """Tráfego normal de todos os usuários; `routines` ajusta a rotina de alguns (Fase 8)."""
     activity = NormalActivity(sessions={u.name: [] for u in profiles.users})
     for user in profiles.users:
         rng = random.Random(f"{seed}:normal:{user.name}")
         behavior = config.behaviors[user.role]
-        generator = _UserGenerator(timeline, user, behavior, config, catalog, ids, period, rng)
+        routine = (routines or {}).get(user.name, SAME_ROUTINE)
+        generator = _UserGenerator(
+            timeline, user, behavior, config, catalog, ids, period, rng, routine
+        )
         if behavior.kind == "interactive":
             for day in period.dates():
                 generator.interactive_day(day)
@@ -292,6 +330,7 @@ class _UserGenerator:
         ids: IdPools,
         period: Period,
         rng: random.Random,
+        routine: Routine = SAME_ROUTINE,
     ) -> None:
         self.tl = timeline
         self.user = user
@@ -301,23 +340,26 @@ class _UserGenerator:
         self.ids = ids
         self.period = period
         self.rng = rng
+        self.routine = routine
         self.sessions: list[SimSession] = []
         self.statements = 0
 
     # interactive -----------------------------------------------------------------------------
 
     def interactive_day(self, day: date) -> None:
-        b = self.b
-        if day.weekday() not in b.weekdays or b.shifts is None or self.user.shift is None:
+        b, routine = self.b, self.routine
+        works = day.weekday() in b.weekdays or routine.on_duty(day)
+        if routine.absent(day) or not works or b.shifts is None or self.user.shift is None:
             return
-        shift_start, shift_end = b.shifts[self.user.shift]
+        shift_start, shift_end = b.shifts[routine.shift(day, self.user.shift)]
         jitter = b.shift_jitter_min * MS_PER_MIN
         start = self.period.local_ms(day, shift_start) + round(self.rng.gauss(0, jitter))
         end = self.period.local_ms(day, shift_end) + round(self.rng.gauss(0, jitter))
         if self.rng.random() < b.overtime_probability:
             end += round(self.rng.uniform(*b.overtime_extra_min) * MS_PER_MIN)
-        network = pick_weighted(self.rng, b.networks)
+        network = pick_weighted(self.rng, routine.networks(day, b.networks))
         rate = b.actions_per_hour * self.rng.lognormvariate(0, b.daily_rate_sigma)
+        rate *= routine.rate_multiplier(day)  # x * 1.0 == x: sem deriva, nada muda
 
         day_sessions = []
         for s_start, s_end in self._split_shift(start, end):
@@ -338,7 +380,7 @@ class _UserGenerator:
                 session = self.rng.choice(day_sessions)
                 at = round(self.rng.uniform(session.start_ms, session.end_ms))
                 self._action(session, at, self.rng.choice(mistakes))
-        for task in b.weekly:
+        for task in (*b.weekly, *routine.weekly(day)):
             if day.weekday() == task.weekday and day_sessions:
                 self._weekly_task(day, task, day_sessions)
 
@@ -374,7 +416,8 @@ class _UserGenerator:
 
         def rate(ts: int) -> float:
             local_day = self.period.local_date(ts)
-            return b.rate_at(self.period.local_hour(ts)) * daily.get(local_day, 1.0)
+            base = b.rate_at(self.period.local_hour(ts)) * daily.get(local_day, 1.0)
+            return base * self.routine.rate_multiplier(local_day)
 
         length = round(b.session_minutes * MS_PER_MIN)
         t = self.period.start_ms
