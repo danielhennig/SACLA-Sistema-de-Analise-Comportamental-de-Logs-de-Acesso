@@ -307,3 +307,121 @@ def ablation_dots(
     axes[0].set_yticks(y, labels)
     fig.tight_layout()
     return fig
+
+
+# --- Tráfego não estacionário (Fase 8) -------------------------------------------------------
+
+DRIFT_PANELS = (("f1", "Δ F1 (p.p.)"), ("scenarios", "Δ cenários detectados (p.p.)"))
+CHANGE_LABELS = {
+    "troca_turno": "troca de turno",
+    "ferias": "férias",
+    "pico_movimento": "pico de movimento",
+    "crescimento": "crescimento",
+    "home_office": "home office",
+    "nova_rotina": "nova rotina",
+    "plantao": "plantão",
+    "nao_afetadas": "janelas não afetadas",
+}
+
+
+def drift_figures(
+    out_dir: Path,
+    deltas: pd.DataFrame,
+    losses: pd.DataFrame,
+    alarms: pd.DataFrame,
+    config: ModelConfig,
+) -> list[Path]:
+    settings = _figure_settings(config)
+    _style(settings)
+    confidence = 100 * float(config.raw["stats"]["confidence"])
+    seeds = deltas["seed"].nunique()
+    builders = [
+        (
+            "deriva_perdas",
+            drift_losses(deltas, losses, settings),
+            f"Perda de cada detector com as mudanças de rotina (com − sem deriva, em pontos "
+            f"percentuais). Pontos cinza: cada uma das {seeds} sementes; ponto colorido e barra: "
+            f"média e intervalo t de {confidence:.0f}%.",
+        ),
+        (
+            "deriva_alarmes",
+            drift_alarms(alarms, settings),
+            "Alarmes falsos nas janelas normais de teste afetadas por cada mudança de rotina "
+            "(média nas sementes do modelo), e nas janelas não afetadas, como referência.",
+        ),
+    ]
+    return _write(out_dir / "figuras", builders, settings)
+
+
+def drift_losses(deltas: pd.DataFrame, losses: pd.DataFrame, settings: dict[str, Any]) -> Figure:
+    detectors = [d for d in DETECTOR_NAMES if d in set(losses["detector"])]
+    fig, axes = plt.subplots(1, 2, figsize=(settings["width_in"], 2.6), sharey=True)
+    y = np.arange(len(detectors))[::-1].astype(float)
+    for ax, (metric, title) in zip(axes, DRIFT_PANELS, strict=True):
+        every = [0.0]
+        for yi, detector in zip(y, detectors, strict=True):
+            values = 100 * deltas.loc[deltas["detector"] == detector, f"delta_{metric}"]
+            row = losses[losses["detector"] == detector].iloc[0]
+            mean, low, high = (
+                100 * float(row[f"delta_{metric}_{k}"]) for k in ("mean", "low", "high")
+            )
+            every += [*values.to_numpy(float), low, high]
+            ax.scatter(values, np.full(len(values), yi - ROW_GAP), s=10, color=MUTED, zorder=2)
+            ax.errorbar(
+                mean,
+                yi,
+                xerr=[[mean - low], [high - mean]],
+                fmt="none",
+                ecolor=SECONDARY,
+                elinewidth=0.8,
+                capsize=2,
+            )
+            ax.scatter(
+                [mean],
+                [yi],
+                s=40,
+                color=DETECTOR_COLORS[detector],
+                edgecolors=SURFACE,
+                linewidths=1.2,
+                zorder=3,
+            )
+        ax.axvline(0, color=AXIS, linewidth=1.0, zorder=1)
+        span = max(every) - min(every)
+        ax.set_xlim(min(every) - 0.08 * span, max(every) + 0.08 * span)
+        ax.set_ylim(-0.6, len(detectors) - 0.4)
+        ax.set_title(title, fontsize=9, color=INK)
+        _grid(ax, "x")
+    axes[0].set_yticks(y, [DETECTOR_NAMES[d] for d in detectors])
+    fig.tight_layout()
+    return fig
+
+
+def drift_alarms(alarms: pd.DataFrame, settings: dict[str, Any]) -> Figure:
+    detectors = [d for d in DETECTOR_NAMES if d in set(alarms["detector"])]
+    changes = sorted(c for c in set(alarms["change"]) if c != "nao_afetadas")
+    changes.append("nao_afetadas")  # referência por último
+    table = alarms.pivot_table(index="change", columns="detector", values="false_alarm_rate")
+    fig, ax = plt.subplots(figsize=(settings["width_in"], 0.36 * len(changes) + 1.0))
+    y = np.arange(len(changes))[::-1].astype(float)
+    offsets = np.linspace(-0.24, 0.24, len(detectors))
+    for offset, detector in zip(offsets, detectors, strict=True):
+        values = [100 * float(table.loc[c, detector]) for c in changes]
+        ax.scatter(
+            values,
+            y + offset,
+            s=26,
+            color=DETECTOR_COLORS[detector],
+            edgecolors=SURFACE,
+            linewidths=1.0,
+            zorder=3,
+            label=DETECTOR_NAMES[detector],
+        )
+    ax.axhline(y[-1] + 0.5, color=GRID, linewidth=0.8, zorder=1)
+    ax.set_yticks(y, [CHANGE_LABELS.get(c, c) for c in changes])
+    ax.set_ylim(-0.6, len(changes) - 0.4)
+    ax.set_xlim(left=0)
+    ax.set_xlabel("Janelas normais sinalizadas (%)")
+    ax.legend(ncols=len(detectors), loc="upper center", bbox_to_anchor=(0.5, 1.12), frameon=False)
+    _grid(ax, "x")
+    fig.tight_layout()
+    return fig

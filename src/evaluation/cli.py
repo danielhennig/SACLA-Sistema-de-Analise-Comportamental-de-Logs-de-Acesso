@@ -13,6 +13,7 @@ from typing import Any
 from evaluation.ablation import run_ablation
 from evaluation.confirmatory import run_confirmatory
 from evaluation.dataset import build_dataset, dataset_name
+from evaluation.drift import WITH, load_drift_eval, planned_runs, run_drift
 from evaluation.experiment import run_experiment
 from evaluation.plots import make_figures
 from evaluation.report import experiment_report
@@ -46,6 +47,9 @@ def main(argv: list[str] | None = None) -> int:
     p_conf.add_argument("--exp-id", required=True, help="pasta em results/experimentos")
     p_abl = sub.add_parser("ablation", help="ablação de atributos na validação (D52)")
     p_abl.add_argument("--exp-id", required=True, help="pasta em results/experimentos")
+    sub.add_parser("drift-plan", help="simulações sem e com deriva da Fase 8 (JSON)")
+    p_drift = sub.add_parser("drift", help="tráfego não estacionário: perda de cada detector (D55)")
+    p_drift.add_argument("--exp-id", required=True, help="pasta em results/experimentos")
     p_rob = sub.add_parser("robustness", help="reavalia um experimento em outras simulações")
     p_rob.add_argument("--exp-id", required=True, help="pasta em results/experimentos")
     p_rob.add_argument("--run-ids", nargs="+", required=True, help="execuções adicionais")
@@ -70,6 +74,28 @@ def main(argv: list[str] | None = None) -> int:
                 "run_dirs": [f"{sim['data_dir']}/{run_id}" for run_id in run_ids],
             }
             print(json.dumps(plan))
+            return 0
+        if args.command in ("drift-plan", "drift"):
+            settings = load_settings()
+            model = load_model_config(settings=settings)
+            drift = load_drift_eval(model.raw)
+            stationary = {seed: _run_id(sim, seed) for seed in drift.seeds}
+            planned = planned_runs(drift, stationary)
+            if args.command == "drift-plan":
+                plan = {
+                    "seeds": [seed for seed, _, _ in planned],
+                    "run_ids": [run_id for _, _, run_id in planned],
+                    "run_dirs": [f"{sim['data_dir']}/{run_id}" for _, _, run_id in planned],
+                    "drift": [condition == WITH for _, condition, _ in planned],
+                }
+                print(json.dumps(plan))
+                return 0
+            missing = [r for _, _, r in planned if not (data_root / r / "run.json").exists()]
+            if missing:
+                raise ConfigError(f"simulações ausentes em {data_root}: {missing}")
+            exp_dir = _experiment_dir(PROJECT_ROOT / model.results_dir, args.exp_id)
+            out = run_drift(exp_dir, stationary, data_root, features_root, settings)
+            print(out.read_text(encoding="utf-8"))
             return 0
         if args.command in ("confirm", "ablation"):
             settings = load_settings()

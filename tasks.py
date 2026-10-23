@@ -139,6 +139,16 @@ def confirm(extra: list[str]) -> None:
     run([*ANALYSIS, "python", "-m", "evaluation.cli", "confirm", *extra])
 
 
+def drift(extra: list[str]) -> None:
+    """Tráfego não estacionário (Fase 8, D55): simula os pares que faltam e avalia."""
+    if "--exp-id" not in extra:
+        sys.exit("informe --exp-id <pasta em results/experimentos>")
+    resimulate = "--resimulate" in extra
+    extra = [arg for arg in extra if arg != "--resimulate"]
+    _simulate_plan("drift-plan", resimulate)
+    run([*ANALYSIS, "python", "-m", "evaluation.cli", "drift", *extra])
+
+
 def ablation(extra: list[str]) -> None:
     """Ablação de atributos só na validação (D52; ex.: --exp-id <pasta>)."""
     run([*ANALYSIS, "python", "-m", "evaluation.cli", "ablation", *extra])
@@ -149,11 +159,15 @@ def _simulate_plan(command: str, resimulate: bool) -> dict[str, list[Any]]:
     plan: dict[str, list[Any]] = json.loads(
         _capture([*ANALYSIS, "python", "-m", "evaluation.cli", command])
     )
-    for seed, run_id, run_dir in zip(plan["seeds"], plan["run_ids"], plan["run_dirs"], strict=True):
+    # "drift" (opcional): quais execuções são com mudanças de rotina (Fase 8).
+    drifts = plan.get("drift") or [False] * len(plan["seeds"])
+    for seed, run_id, run_dir, with_drift in zip(
+        plan["seeds"], plan["run_ids"], plan["run_dirs"], drifts, strict=True
+    ):
         if not resimulate and (ROOT / run_dir / "run.json").exists():
             print(f"{run_id}: execução já existe em {run_dir}; não será simulada de novo")
             continue
-        simulate(["--seed", str(seed)])
+        simulate(["--seed", str(seed), *(["--drift"] if with_drift else [])])
         features(["--run-id", run_id])
     return plan
 
@@ -261,6 +275,7 @@ TASKS: dict[str, Callable[[list[str]], None]] = {
     "robustness": robustness,
     "confirm": confirm,
     "ablation": ablation,
+    "drift": drift,
     "report": report,
     "fit": fit,
     "score": score,
