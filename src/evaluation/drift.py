@@ -24,6 +24,8 @@ import pandas as pd
 from scipy.stats import ttest_rel
 
 from evaluation.confirmatory import (
+    REPRODUCED,
+    REPRODUCTION_TOLERANCE,
     Resampler,
     RunData,
     flags_frame,
@@ -58,9 +60,8 @@ MEASURES = {
     "recall": "recall_mean",
     "scenarios": "scenario_recall_mean",
 }
+# O mesmo nome de simlab.drift.DRIFT_FILE: a avaliação não importa o simulador.
 DRIFT_FILE = "drift.csv"
-REPRODUCED = ("precision_mean", "recall_mean", "f1_mean", "scenario_recall_mean")
-REPRODUCTION_TOLERANCE = 1e-9
 
 
 @dataclass(frozen=True)
