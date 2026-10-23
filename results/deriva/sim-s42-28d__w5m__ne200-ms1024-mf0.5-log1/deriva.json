@@ -1,0 +1,127 @@
+{
+  "exp_id": "sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1",
+  "params": {
+    "n_estimators": 200,
+    "max_samples": 1024,
+    "max_features": 0.5,
+    "log1p": true
+  },
+  "seeds": [
+    101,
+    202,
+    303,
+    404,
+    505,
+    606,
+    707,
+    808,
+    909,
+    1010
+  ],
+  "runs": [
+    "sim-s101-28d",
+    "sim-s101-28d-deriva",
+    "sim-s202-28d",
+    "sim-s202-28d-deriva",
+    "sim-s303-28d",
+    "sim-s303-28d-deriva",
+    "sim-s404-28d",
+    "sim-s404-28d-deriva",
+    "sim-s505-28d",
+    "sim-s505-28d-deriva",
+    "sim-s606-28d",
+    "sim-s606-28d-deriva",
+    "sim-s707-28d",
+    "sim-s707-28d-deriva",
+    "sim-s808-28d",
+    "sim-s808-28d-deriva",
+    "sim-s909-28d",
+    "sim-s909-28d-deriva",
+    "sim-s1010-28d",
+    "sim-s1010-28d-deriva"
+  ],
+  "reproduction": {
+    "compared_runs": [
+      "sim-s101-28d",
+      "sim-s202-28d",
+      "sim-s303-28d",
+      "sim-s404-28d",
+      "sim-s505-28d"
+    ],
+    "max_abs_diff": 1.1102230246251565e-16
+  },
+  "stats": {
+    "confidence": 0.95,
+    "alpha": 0.05,
+    "bootstrap_resamples": 2000,
+    "permutation_resamples": 10000,
+    "seed": 0,
+    "majority": 0.5,
+    "hypotheses": [
+      {
+        "id": "H1",
+        "metric": "scenarios",
+        "subset": "all",
+        "a": "if_mais_regras",
+        "b": "regras"
+      },
+      {
+        "id": "H2",
+        "metric": "f1",
+        "subset": "all",
+        "a": "if_mais_regras",
+        "b": "regras"
+      },
+      {
+        "id": "H3",
+        "metric": "scenarios",
+        "subset": "novel",
+        "a": "isolation_forest",
+        "b": "regras"
+      }
+    ],
+    "descriptive": [
+      {
+        "metric": "f1",
+        "subset": "all",
+        "a": "isolation_forest",
+        "b": "regras"
+      },
+      {
+        "metric": "precision",
+        "subset": "all",
+        "a": "if_mais_regras",
+        "b": "regras"
+      },
+      {
+        "metric": "recall",
+        "subset": "all",
+        "a": "if_mais_regras",
+        "b": "regras"
+      },
+      {
+        "metric": "scenarios",
+        "subset": "all",
+        "a": "isolation_forest",
+        "b": "regras"
+      }
+    ]
+  },
+  "hypotheses": [
+    {
+      "id": "H4",
+      "test": "did_t",
+      "metric": "f1",
+      "a": "isolation_forest",
+      "b": "regras"
+    },
+    {
+      "id": "H5",
+      "test": "mcnemar",
+      "metric": "scenarios",
+      "subset": "all",
+      "a": "if_mais_regras",
+      "b": "regras"
+    }
+  ]
+}

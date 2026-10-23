@@ -347,7 +347,8 @@ def drift_figures(
             "deriva_alarmes",
             drift_alarms(alarms, settings),
             "Alarmes falsos nas janelas normais de teste afetadas por cada mudança de rotina "
-            "(média nas sementes do modelo), e nas janelas não afetadas, como referência.",
+            "(média nas sementes do modelo), e nas janelas não afetadas, como referência. As "
+            "férias não aparecem: o usuário não acessa o banco, então não há janelas afetadas.",
         ),
     ]
     return _write(out_dir / "figuras", builders, settings)
@@ -398,12 +399,14 @@ def drift_losses(deltas: pd.DataFrame, losses: pd.DataFrame, settings: dict[str,
 
 def drift_alarms(alarms: pd.DataFrame, settings: dict[str, Any]) -> Figure:
     detectors = [d for d in DETECTOR_NAMES if d in set(alarms["detector"])]
-    changes = sorted(c for c in set(alarms["change"]) if c != "nao_afetadas")
+    # Mudanças sem janelas no teste (férias: o usuário não acessa) não têm taxa e ficam de fora.
+    with_windows = alarms.groupby("change")["normal_windows"].first() > 0
+    changes = sorted(c for c in with_windows.index[with_windows] if c != "nao_afetadas")
     changes.append("nao_afetadas")  # referência por último
     table = alarms.pivot_table(index="change", columns="detector", values="false_alarm_rate")
     fig, ax = plt.subplots(figsize=(settings["width_in"], 0.36 * len(changes) + 1.0))
     y = np.arange(len(changes))[::-1].astype(float)
-    offsets = np.linspace(-0.24, 0.24, len(detectors))
+    offsets = np.linspace(0.24, -0.24, len(detectors))  # de cima para baixo, como na legenda
     for offset, detector in zip(offsets, detectors, strict=True):
         values = [100 * float(table.loc[c, detector]) for c in changes]
         ax.scatter(
@@ -415,6 +418,7 @@ def drift_alarms(alarms: pd.DataFrame, settings: dict[str, Any]) -> Figure:
             linewidths=1.0,
             zorder=3,
             label=DETECTOR_NAMES[detector],
+            clip_on=False,  # pontos em 0% não ficam escondidos pelo eixo
         )
     ax.axhline(y[-1] + 0.5, color=GRID, linewidth=0.8, zorder=1)
     ax.set_yticks(y, [CHANGE_LABELS.get(c, c) for c in changes])

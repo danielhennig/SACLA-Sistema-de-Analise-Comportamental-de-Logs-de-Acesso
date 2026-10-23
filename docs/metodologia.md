@@ -22,6 +22,8 @@ Questões investigadas:
 5. As conclusões se repetem em simulações novas, com hipóteses fixadas antes e teste
    estatístico? Quanto cada grupo de atributos contribui, e o que se perde sem o
    `auto_explain`?
+6. Como cada detector se comporta quando a rotina normal dos usuários muda de forma legítima
+   (turno, férias, picos, home office, novas tarefas)?
 
 ## 2. Ambiente
 
@@ -331,6 +333,50 @@ F1 na validação (intervalo t de 95% entre simulações):
   Os ~10% de latência do `auto_explain` compram, portanto, cerca de 15 pontos de cobertura,
   justamente nos casos de extração de dados e de alteração em massa.
 
+### 9.9 Tráfego normal não estacionário (figuras `deriva_perdas` e `deriva_alarmes`)
+
+**Desenho (D55).** Um catálogo de sete mudanças legítimas de rotina foi fixado e versionado
+antes de qualquer simulação com deriva:
+- troca de turno;
+- férias;
+- pico de movimento;
+- crescimento da aplicação web;
+- home office;
+- relatório novo em tabelas nunca usadas;
+- plantão num sábado.
+
+O catálogo indica, de antemão, que detector cada mudança deve afetar. Ele inclui mudanças que
+só o IF enxerga (IP, tabelas novas, fim de semana).
+
+Dez sementes foram simuladas sem e com as mudanças, que começam entre os dias 8 e 27. As
+janelas afetadas continuam normais. O modelo e as regras ficam congelados, e o protocolo é o da
+robustez.
+
+**Resultados (D56)** (média das 10 sementes, intervalo t de 95%; %):
+
+| Detector | F1 sem → com deriva | Perda de F1 | Precisão sem → com | Cenários sem → com |
+|---|---:|---:|---:|---:|
+| IF ajustado | 66,2 → 64,5 | −1,7 [−4,1; +0,7] | 75,6 → 72,1 | 70,0 → 71,0 |
+| Regras | 80,0 → 64,1 | −15,9 [−23,7; −8,1] | 94,0 → 61,7 | 74,7 → 74,4 |
+| IF ∪ regras | 79,6 → 65,3 | −14,2 [−21,5; −7,0] | 79,2 → 56,7 | 85,4 → 86,1 |
+
+- **H4, confirmada:** o IF perde 14,2 pontos de F1 a menos que as regras [5,8; 22,5]. O teste
+  t pareado nas 10 sementes dá p (Holm) = 0,0039. Com deriva, o F1 das regras (64,1) cai ao
+  nível do IF (64,5).
+- **H5, confirmada:** com deriva, a união ainda detecta mais cenários que as regras, +11,8
+  pontos [10,3; 13,3]. A deriva gera alarmes falsos, não perda de detecção.
+- **A perda das regras vem quase toda da troca de turno.** A regra de hora inédita sinaliza
+  32,5% das janelas normais de quem trocou de turno, contra 3,8% no IF. Essas janelas são 91%
+  dos alarmes falsos das regras com deriva.
+- **Nas outras mudanças, as regras são tão ou mais robustas que o IF.** Ficam abaixo de 0,5%
+  em crescimento, home office, nova rotina e plantão. O IF sofre um pouco nessas, de 0,8% a
+  4,3%, perto da sua taxa de base de 1,9%.
+- **Leitura.** Regras de limiar fixo sobre o comportamento passado quebram quando a rotina muda
+  de forma legítima e precisam de manutenção. Um exemplo seria reaprender as horas de um
+  usuário depois de uma troca de turno confirmada na triagem. O IF, que compara o usuário com o
+  próprio histórico, degrada de forma mais suave. A magnitude depende da frequência de trocas
+  de turno no catálogo.
+
 ## 10. Relatório e uso real
 
 Para cada janela sinalizada, o relatório (CSV e HTML) mostra:
@@ -363,8 +409,12 @@ explicados e a triagem de cada um (D47–D50).
 
 **Validade interna e de construto**
 - **Dados sintéticos.** O tráfego é simulado com rotinas regulares. Usuários reais variam mais,
-  o que tende a reduzir a precisão de qualquer detector, e mais ainda a das regras de
-  "máximo do usuário".
+  o que tende a reduzir a precisão de qualquer detector.
+  - O cenário com mudanças de rotina (seção 9.9) confirmou isso para as regras: a precisão cai
+    de 94% para 62%.
+  - O IF perdeu pouco.
+  - As mudanças, porém, vêm de um catálogo escrito pelo mesmo autor, e a frequência de cada
+    uma (por exemplo, 2 de 4 atendentes trocando de turno no mês) é uma escolha de desenho.
 - **Mesmo autor nos dois lados.** O mesmo autor desenhou as anomalias, os atributos e as
   regras. As regras foram escritas conhecendo os seis tipos, o que favorece a baseline. O tipo
   inédito e a análise por tipo mitigam, mas não eliminam, esse viés.
@@ -420,10 +470,14 @@ python tasks.py robustness --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1
 python tasks.py report       # relatório do teste e figuras
 python tasks.py confirm  --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1   # Fase 7 (~15 min)
 python tasks.py ablation --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1   # Fase 7 (~1 min)
+python tasks.py drift    --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1   # Fase 8 (~1 h)
 ```
 
-- **Sementes:** simulação 42 (robustez: 7 e 2026; confirmatórias: 101, 202, 303, 404 e 505),
-  ajuste 0–4, avaliação 0–9, bootstrap e permutação 0.
+- **Sementes:**
+  - simulação 42; robustez: 7 e 2026; confirmatórias: 101, 202, 303, 404 e 505;
+  - com e sem deriva: 101 a 505 e 606, 707, 808, 909 e 1010;
+  - ajuste 0–4, avaliação 0–9, bootstrap e permutação 0.
+- **Deriva:** o sorteio das mudanças usa `"{semente}:drift:{mudança}"`.
 - **Configuração:** em `config/*.yaml`; a resolvida e as versões ficam em cada pasta de
   experimento.
 - **Determinismo:** refazer a avaliação produz as mesmas métricas; só os tempos variam.

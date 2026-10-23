@@ -12,14 +12,15 @@ O SACLA lê só o log nativo do PostgreSQL. Ele aponta janelas de 5 minutos em q
 comporta de forma atípica em relação ao próprio histórico e explica por quê. É um sistema que
 **auxilia** a identificação: um alerta indica comportamento atípico, não um ataque.
 
-As sete fases estão concluídas:
+As oito fases estão concluídas:
 1. ambiente e logs;
 2. usuários, simuladores e ground truth;
 3. leitura e atributos;
 4. modelo, avaliação e baseline;
 5. relatórios, figuras e documentação;
 6. monitor contínuo e painel local (ferramenta de apoio, fora da avaliação);
-7. validação confirmatória pré-registrada, estatística e ablação de atributos.
+7. validação confirmatória pré-registrada, estatística e ablação de atributos;
+8. tráfego normal não estacionário (mudanças legítimas de rotina).
 
 A metodologia e os resultados estão em [docs/metodologia.md](docs/metodologia.md); as
 decisões técnicas, com fontes e evidências, em [docs/decisoes.md](docs/decisoes.md).
@@ -65,6 +66,26 @@ As hipóteses e os testes foram versionados antes de gerar os dados (D52, D53).
   - sem o `auto_explain`, a união detecta cerca de 15 pontos a menos de cenários, quase todos
     de volume alto e DML incomum.
 
+### Rotinas que mudam (10 sementes, sem e com mudanças legítimas de rotina)
+
+O catálogo tem sete mudanças: troca de turno, férias, picos, crescimento, home office, novo
+relatório e plantão. Ele foi fixado antes das simulações (D55, D56). As janelas afetadas
+continuam normais.
+
+| Detector | F1 sem → com mudanças | Perda de F1 [IC 95%] | Precisão sem → com |
+|---|---:|---:|---:|
+| Isolation Forest (ajustado) | 66,2 → 64,5 | −1,7 [−4,1; +0,7] | 75,6 → 72,1 |
+| Regras de especialista | 80,0 → 64,1 | −15,9 [−23,7; −8,1] | 94,0 → 61,7 |
+| Isolation Forest ∪ regras | 79,6 → 65,3 | −14,2 [−21,5; −7,0] | 79,2 → 56,7 |
+
+- **H4, confirmada:** o IF perde 14,2 pontos de F1 a menos que as regras [5,8; 22,5], com
+  p (Holm) = 0,0039.
+- **A perda das regras vem quase toda da troca de turno.** A regra de hora inédita sinaliza
+  um terço das janelas normais de quem mudou de turno (91% dos seus alarmes falsos). Nas
+  demais mudanças, as regras são tão ou mais robustas que o IF.
+- **H5, confirmada:** a união continua detectando mais cenários que as regras. A deriva gera
+  alarmes falsos, não perda de detecção.
+
 ## Pré-requisitos
 
 - Docker Desktop (ou Docker Engine) com Compose v2, em execução.
@@ -83,6 +104,7 @@ python tasks.py robustness --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1
 python tasks.py report       # relatório de anomalias do teste e figuras
 python tasks.py confirm  --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1   # Fase 7 (~15 min)
 python tasks.py ablation --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1   # Fase 7 (~1 min)
+python tasks.py drift    --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1   # Fase 8 (~1 h)
 python tasks.py test         # testes (pytest)
 python tasks.py lint         # ruff + mypy
 ```
@@ -161,6 +183,7 @@ O visual (cores, tipografia e modo escuro) fica em `.streamlit/config.toml` (D51
 | `results/robustez/<exp_id>/` | o mesmo experimento em outras simulações | sim |
 | `results/confirmatorio/<exp_id>/` | validação confirmatória: hipóteses, intervalos, sinalizações por janela e figuras | sim |
 | `results/ablacao/<exp_id>/` | ablação de atributos na validação, por grupo e por tipo de cenário | sim |
+| `results/deriva/<exp_id>/` | tráfego não estacionário: perdas, hipóteses, alarmes falsos por mudança e figuras | sim |
 | `results/historico/` | primeira avaliação (v1), guardada para comparação | sim |
 
 As figuras (PNG 300 dpi e PDF) e as legendas sugeridas (`figuras/legendas.md`) estão prontas
@@ -186,7 +209,8 @@ existem só no manifesto e na avaliação.
 
 ## Limitações principais
 
-- Tráfego sintético, regular e desenhado pelo mesmo autor das anomalias e das regras.
+- Tráfego sintético, desenhado pelo mesmo autor das anomalias e das regras. O cenário com
+  mudanças de rotina (D56) atenua a regularidade, mas o catálogo também é do mesmo autor.
 - Horários simulados e execução sequencial, sem concorrência real.
 - `auto_explain` com análise: ~10% de latência e ~10 KB de log por comando. Sem ele, a
   cobertura de volume alto e DML incomum cai para menos da metade (D54).

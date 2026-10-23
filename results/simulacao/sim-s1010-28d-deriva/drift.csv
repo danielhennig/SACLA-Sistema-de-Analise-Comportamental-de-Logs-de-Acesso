@@ -1,0 +1,12 @@
+change,user,role,first_day,last_day,start_ms,end_ms,params
+troca_turno,atendente_03,atendente,2026-03-21,2026-03-29,1774062000000,1774839600000,"{""shift"": ""manha""}"
+troca_turno,atendente_01,atendente,2026-03-09,2026-03-29,1773025200000,1774839600000,"{""shift"": ""tarde""}"
+ferias,atendente_03,atendente,2026-03-23,2026-03-29,1774234800000,1774839600000,{}
+ferias,atendente_04,atendente,2026-03-12,2026-03-18,1773284400000,1773889200000,{}
+pico_movimento,atendente_04,atendente,2026-03-19,2026-03-25,1773889200000,1774494000000,"{""rate_multiplier"": 2.0905}"
+pico_movimento,atendente_01,atendente,2026-03-28,2026-03-29,1774666800000,1774839600000,"{""rate_multiplier"": 2.1343}"
+crescimento,svc_locadora,servico_app,2026-03-20,2026-03-29,1773975600000,1774839600000,"{""weekly_growth"": 0.1}"
+home_office,analista_02,analista,2026-03-11,2026-03-29,1773198000000,1774839600000,"{""networks"": {""externa"": 0.5, ""lan"": 0.5}}"
+home_office,gerente_01,gerente,2026-03-21,2026-03-29,1774062000000,1774839600000,"{""networks"": {""externa"": 0.5, ""lan"": 0.5}}"
+nova_rotina,analista_02,analista,2026-03-11,2026-03-29,1773198000000,1774839600000,"{""action"": ""relatorio_lojas_cidades""}"
+plantao,gerente_01,gerente,2026-03-28,2026-03-28,1774666800000,1774753200000,{}

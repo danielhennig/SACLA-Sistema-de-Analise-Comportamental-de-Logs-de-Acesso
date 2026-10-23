@@ -217,10 +217,17 @@ def affected_windows(
 
 def false_alarms(runs: list[RunData], changes: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Fração das janelas normais de teste sinalizadas, por mudança e detector (média nas
-    sementes do modelo), e a mesma fração nas janelas normais não afetadas."""
+    sementes do modelo), e a mesma fração nas janelas normais não afetadas.
+
+    `share_of_false_alarms`: parte de todos os alarmes falsos do detector nas simulações com
+    deriva que cai nas janelas da mudança (uma janela de duas mudanças conta nas duas).
+    """
     counts: dict[tuple[str, str], list[float]] = {}
+    totals = dict.fromkeys(DETECTORS, 0.0)
     for data in runs:
         normal = data.windows["label"].to_numpy() == 0
+        for detector in DETECTORS:
+            totals[detector] += float(data.flags[detector][normal].mean(axis=1).sum())
         masks = affected_windows(data.windows, changes[data.run_id])
         any_change = np.zeros(len(data.windows), bool)
         for mask in masks.values():
@@ -239,7 +246,9 @@ def false_alarms(runs: list[RunData], changes: dict[str, pd.DataFrame]) -> pd.Da
             "change": change,
             "detector": detector,
             "normal_windows": int(windows),
+            "false_alarms": flagged,
             "false_alarm_rate": flagged / windows if windows else float("nan"),
+            "share_of_false_alarms": flagged / totals[detector] if totals[detector] else 0.0,
         }
         for (change, detector), (flagged, windows) in counts.items()
     ]
@@ -466,19 +475,36 @@ def markdown(
         "| Mudança | Janelas | " + " | ".join(NAMES[d] for d in DETECTORS) + " |",
         "|---|---:|" + "---:|" * len(DETECTORS),
     ]
-    table = alarms.pivot_table(index="change", columns="detector", values="false_alarm_rate")
+    # dropna=False: uma mudança sem janelas no teste (férias: o usuário não acessa) fica com "—".
+    table = alarms.pivot_table(
+        index="change", columns="detector", values="false_alarm_rate", dropna=False
+    )
     windows = alarms.groupby("change")["normal_windows"].first()
-    order = [c for c in table.index if c != "nao_afetadas"] + ["nao_afetadas"]
+    order = [*sorted(c for c in windows.index if c != "nao_afetadas"), "nao_afetadas"]
     for change in order:
         name = "(não afetadas)" if change == "nao_afetadas" else change
         cells = [_pct(float(table.loc[change, d])) for d in DETECTORS]
         lines.append(f"| {name} | {int(windows[change])} | " + " | ".join(cells) + " |")
+    share = alarms.pivot_table(
+        index="change", columns="detector", values="share_of_false_alarms", dropna=False
+    )
+    lines += [
+        "",
+        "### Parte de todos os alarmes falsos com deriva que cai nas janelas de cada mudança (%)",
+        "",
+        "| Mudança | " + " | ".join(NAMES[d] for d in DETECTORS) + " |",
+        "|---|" + "---:|" * len(DETECTORS),
+    ]
+    for change in order:
+        name = "(não afetadas)" if change == "nao_afetadas" else change
+        cells = [_pct(float(share.loc[change, d])) for d in DETECTORS]
+        lines.append(f"| {name} | " + " | ".join(cells) + " |")
     lines += [
         "",
         f"Mudanças sorteadas: {len(plan)} nas {len(config.seeds)} simulações com deriva "
         f"(`drift_plans.csv`); por tipo: "
         + ", ".join(f"{k} {v}" for k, v in plan["change"].value_counts().sort_index().items())
-        + ".",
+        + ". Nas férias o usuário não acessa o banco: não há janelas afetadas.",
         "",
         "## Conferência",
         "",

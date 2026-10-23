@@ -1280,3 +1280,95 @@ saída em `results/deriva/<exp_id>/`. Ele simula os pares que faltam e depois av
 - nenhuma mudança do catálogo é ajustada depois de ver detectores;
 - durante o desenvolvimento, as simulações de conferência do gerador só verificaram a
   validade da simulação, nunca saídas de detector.
+
+**D56 — Resultados com tráfego não estacionário.** O protocolo do pré-registro (D55) foi
+seguido: `python tasks.py drift --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1`. A saída
+está em `results/deriva/<exp_id>/`:
+- `deriva.md`, `hypotheses.csv`, `drift_losses.csv`;
+- `false_alarms_by_change.csv` e `drift_plans.csv`;
+- `janelas/` e `figuras/`.
+
+*Simulações.* As 15 novas (10 com deriva e as 5 sem deriva que faltavam) passaram em todas as
+verificações:
+- cada uma com 266 cenários coerentes com o log;
+- retime correto;
+- conferência com o executor aprovada;
+- nenhum erro inesperado.
+
+Contaminação do teste:
+- com deriva, de 7,0% a 8,3%; nas férias há menos janelas normais, o que eleva a fração;
+- sem deriva (sementes 606 a 1010), de 6,85% a 7,3%.
+
+Houve 110 mudanças sorteadas, 11 por simulação.
+
+- **Falha refeita:** a simulação sem deriva da semente 1010 parou no evento 106.478 de
+  108.078. O container não conseguiu resolver o nome `db-externa` (DNS interno do Docker).
+  - O banco não reiniciou (0 reinícios, sem falta de memória), e o código dessa simulação é o
+    mesmo do `master`.
+  - Pela regra do pré-registro, a mesma semente foi refeita e passou. Nenhuma semente foi
+    trocada.
+- **Conferência:** as simulações sem deriva da Fase 7 (101 a 505), reavaliadas, reproduziram
+  os números publicados (diferença máxima de 1,1·10⁻¹⁶).
+- **Ajuste no relatório, depois do primeiro resultado:** a definição de "janela afetada"
+  pré-registrada deixa as férias sem nenhuma janela, porque o usuário não acessa o banco. O
+  relatório e a figura quebravam com a taxa indefinida. Agora a tabela mostra "—", a figura
+  omite a linha e a legenda explica por quê. A definição não mudou.
+
+*Hipóteses* (10 sementes; Holm sobre as duas):
+
+| | Medida | IF ou união | Regras | Diferença [IC 95%] | p | p (Holm) | Resultado |
+|---|---|---:|---:|---:|---:|---:|---|
+| H4 | perda de F1 com deriva (com − sem), IF × regras | −1,7 | −15,9 | +14,2 [5,8; 22,5] | 0,0039 | 0,0039 | confirmada |
+| H5 | cenários detectados com deriva, IF ∪ regras × regras | 86,1 | 74,4 | +11,8 [10,3; 13,3] | 1,3·10⁻⁵⁷ | 2,5·10⁻⁵⁷ | confirmada |
+
+Em H5, os discordantes foram 190 cenários só da união e 0 só das regras.
+
+*Perda de cada detector* (média nas 10 sementes, intervalo t de 95%; %):
+
+| Detector | F1 sem → com | Precisão sem → com | Cenários sem → com |
+|---|---:|---:|---:|
+| IF ajustado | 66,2 → 64,5 (−1,7 [−4,1; +0,7]) | 75,6 → 72,1 | 70,0 → 71,0 |
+| IF sem rótulos | 41,2 → 37,8 (−3,4 [−6,8; −0,0]) | 70,0 → 64,6 | 36,8 → 36,1 |
+| Regras | 80,0 → 64,1 (−15,9 [−23,7; −8,1]) | 94,0 → 61,7 | 74,7 → 74,4 |
+| IF ∪ regras | 79,6 → 65,3 (−14,2 [−21,5; −7,0]) | 79,2 → 56,7 | 85,4 → 86,1 |
+
+*Alarmes falsos nas janelas normais de teste afetadas por cada mudança* (%; entre parênteses,
+a parte de todos os alarmes falsos do detector com deriva que cai nessas janelas):
+
+| Mudança | Janelas | IF ajustado | Regras | IF ∪ regras |
+|---|---:|---:|---:|---:|
+| troca de turno | 5.026 | 3,8 (24%) | **32,5 (91%)** | 33,7 (72%) |
+| pico de movimento | 1.405 | 11,0 (19%) | 10,0 (8%) | 14,9 (9%) |
+| plantão | 340 | 4,3 (2%) | 0,0 | 4,3 (1%) |
+| nova rotina | 1.791 | 2,9 (6%) | 0,2 | 2,9 (2%) |
+| home office | 4.217 | 2,5 (13%) | 0,5 (1%) | 2,7 (5%) |
+| crescimento | 15.703 | 0,8 (16%) | 0,1 (0,5%) | 0,9 (6%) |
+| férias | 0 | — | — | — |
+| (janelas não afetadas) | 14.015 | 1,9 | 0,7 | 2,1 |
+
+*Interpretação:*
+1. **A deriva quase não afeta o IF.** O F1 cai 1,7 ponto, e o intervalo inclui zero. Os
+   cenários detectados não mudam. Os atributos relativos ao histórico (D45, D54) comparam o
+   usuário consigo mesmo. Quando a mudança começa no treino ou na validação, o histórico e o
+   limiar já a incorporam em parte.
+2. **As regras perdem 15,9 pontos de F1, quase todos de uma única mudança.** Na troca de
+   turno, a regra `hora_inedita` dispara em toda janela de um horário nunca visto no treino. O
+   resultado: 32,5% das janelas afetadas viram alarmes falsos, e elas respondem por 91% dos
+   alarmes falsos das regras com deriva. A precisão cai de 94,0% para 61,7%.
+   - Nas outras mudanças, as regras são tão ou mais robustas que o IF: crescimento 0,1%, home
+     office 0,5%, nova rotina 0,2%, plantão 0%. A regra de hora não olha o dia da semana.
+   - O IF sofre mais nas mudanças que só ele enxerga (home office, nova rotina, plantão), como
+     previsto na D55, mas com taxas de 2,5% a 4,3%, próximas da sua taxa de base de 1,9%.
+3. **H4 se confirma, mas depende sobretudo da troca de turno.** A conclusão honesta não é "o
+   IF é mais robusto a qualquer mudança". É esta: regras de limiar fixo sobre o comportamento
+   passado quebram quando a rotina muda de forma legítima, e o IF degrada de forma mais suave.
+   O tamanho da perda das regras depende da frequência das trocas de turno, um parâmetro do
+   catálogo: 2 de 4 atendentes num mês é muito.
+4. **A união herda a fragilidade das regras:** precisão de 79,2% para 56,7%. Ela continua
+   cobrindo mais cenários (H5), porque a deriva gera alarmes falsos, não perda de detecção.
+   Na prática, uma regra de horário precisa de manutenção quando a escala muda, por exemplo
+   reaprender as horas do usuário depois de uma troca confirmada na triagem. O IF não precisa
+   disso para manter o F1.
+5. **Mesmo autor:** o mesmo autor desenhou as mudanças, as regras e o modelo. A tabela "afeta"
+   da D55, escrita antes, mostra que o catálogo também tinha mudanças desfavoráveis ao IF. Elas
+   de fato o afetaram, mas pouco.

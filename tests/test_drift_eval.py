@@ -99,6 +99,8 @@ def test_false_alarms_count_only_normal_windows_and_average_the_seeds() -> None:
     assert table.loc[("pico", "regras"), "false_alarm_rate"] == pytest.approx(0.5)
     assert table.loc[("pico", "regras"), "normal_windows"] == 2
     assert table.loc[("nao_afetadas", "isolation_forest"), "false_alarm_rate"] == 0.0
+    # Todos os alarmes falsos do IF (1,5 janela) estão na janela afetada: 100%.
+    assert table.loc[("pico", "isolation_forest"), "share_of_false_alarms"] == pytest.approx(1.0)
     assert set(table.index.get_level_values("detector")) == set(DETECTORS)
 
 
@@ -130,3 +132,18 @@ def test_drift_config_rejects_an_unknown_test() -> None:
     }
     with pytest.raises(ConfigError):
         load_drift_eval(bad)
+
+
+def test_change_without_windows_is_reported_without_a_rate() -> None:
+    # Férias: o usuário não acessa o banco, então nenhuma janela de teste é afetada.
+    windows = pd.DataFrame(
+        {"user": ["ana"], "window_start_ms": [0], "window_end_ms": [100], "label": [0]}
+    )
+    flags = {d: np.zeros((1, 1), bool) for d in DETECTORS}
+    run = RunData("r1", WITH, windows, flags, pd.DataFrame())
+    changes = {
+        "r1": pd.DataFrame([{"change": "ferias", "user": "bia", "start_ms": 0, "end_ms": 50}])
+    }
+    table = false_alarms([run], changes).set_index(["change", "detector"])
+    assert table.loc[("ferias", "regras"), "normal_windows"] == 0
+    assert np.isnan(table.loc[("ferias", "regras"), "false_alarm_rate"])
