@@ -1,0 +1,39 @@
+{
+  "_comentario": "Elementos pré-textuais da monografia (ABNT NBR 14724). Os campos entre colchetes são da instituição e devem ser preenchidos no modelo da faculdade.",
+  "instituicao": ["[NOME DA INSTITUIÇÃO]", "[NOME DO CENTRO OU DEPARTAMENTO]", "CURSO DE CIÊNCIA DA COMPUTAÇÃO"],
+  "autor": "Daniel Hennig",
+  "titulo": "SACLA",
+  "subtitulo": "detecção de acessos anômalos em logs do PostgreSQL utilizando aprendizado de máquina não supervisionado",
+  "natureza": "Trabalho de Conclusão de Curso apresentado ao Curso de Ciência da Computação da [nome da instituição], como requisito parcial para a obtenção do título de Bacharel em Ciência da Computação.",
+  "orientador": "Orientador(a): Prof.(a) [nome do(a) orientador(a)]",
+  "local": "[Cidade]",
+  "ano": "2026",
+  "banca": [
+    "Prof.(a) [nome] – Orientador(a)\n[Instituição]",
+    "Prof.(a) [nome]\n[Instituição]",
+    "Prof.(a) [nome]\n[Instituição]"
+  ],
+  "resumo": "Bancos de dados concentram as informações mais sensíveis das organizações, e boa parte dos acessos indevidos é feita por quem já tem credenciais válidas, o que limita o alcance dos controles de acesso. Este trabalho apresenta o SACLA (Sistema de Análise Comportamental de Logs de Acesso), que lê o log nativo do PostgreSQL em formato JSON e aponta janelas de cinco minutos em que um usuário se comporta de forma atípica em relação ao próprio histórico, com uma explicação legível para cada alerta. O sistema usa um único algoritmo de aprendizado não supervisionado, o Isolation Forest, sobre 28 atributos por janela, entre eles atributos relativos ao histórico de cada usuário e as contagens de linhas obtidas pelo módulo auto_explain. Como não há bases públicas rotuladas de acessos a bancos de dados, a avaliação usa um laboratório reprodutível: PostgreSQL 18 com a base Pagila, dez usuários simulados em cinco papéis e seis tipos de anomalia injetados em três intensidades, além de um tipo inédito presente só no teste, com os rótulos mantidos fora do log. O modelo é treinado sem rótulos, ajustado apenas na validação e comparado a seis regras de especialista e à combinação das duas abordagens. Na simulação de referência, o Isolation Forest obteve F1 de 68,1%, contra 80,2% das regras, e a combinação detectou 86,2% dos cenários anômalos. Em uma validação confirmatória pré-registrada, com cinco simulações novas, a combinação detectou 10,9 pontos percentuais mais cenários que as regras (p < 0,0001), com o mesmo F1 por janela; a vantagem do modelo sobre as regras no tipo inédito não se confirmou. A ablação mostrou que os atributos relativos ao histórico do usuário são os mais importantes e que dispensar o auto_explain reduz a cobertura em cerca de 15 pontos percentuais. Com mudanças legítimas de rotina, o F1 das regras caiu 15,9 pontos e o do Isolation Forest, 1,7 ponto (p = 0,0039). Conclui-se que o Isolation Forest não substitui regras simples, mas as complementa e degrada de forma mais suave quando a rotina dos usuários muda, o que o torna útil como apoio à identificação de acessos anômalos.",
+  "palavras_chave": ["Detecção de anomalias", "Isolation Forest", "PostgreSQL", "Segurança de banco de dados", "Aprendizado não supervisionado"],
+  "abstract": "Databases hold an organization's most sensitive information, and many improper accesses are made by people who already hold valid credentials, which limits what access control can achieve. This work presents SACLA (Behavioral Analysis System for Access Logs), which reads the native PostgreSQL log in JSON format and points out five-minute windows in which a user behaves unusually compared with their own history, with a readable explanation for each alert. The system uses a single unsupervised learning algorithm, Isolation Forest, over 28 features per window, including features relative to each user's history and the row counts obtained through the auto_explain module. Since there are no public labeled datasets of database accesses, the evaluation uses a reproducible laboratory: PostgreSQL 18 with the Pagila database, ten simulated users in five roles, and six anomaly types injected at three intensities, plus a novel type present only in the test set, with labels kept outside the log. The model is trained without labels, tuned only on the validation set, and compared with six expert rules and with the combination of both approaches. In the reference simulation, Isolation Forest reached an F1 of 68.1%, against 80.2% for the rules, and the combination detected 86.2% of the anomalous scenarios. In a pre-registered confirmatory validation on five new simulations, the combination detected 10.9 percentage points more scenarios than the rules (p < 0.0001), with the same per-window F1; the model's advantage over the rules on the novel type was not confirmed. The ablation showed that the features relative to the user's history matter most and that dropping auto_explain reduces coverage by about 15 percentage points. Under legitimate routine changes, the rules' F1 fell by 15.9 points and Isolation Forest's by 1.7 points (p = 0.0039). We conclude that Isolation Forest does not replace simple rules, but complements them and degrades more gracefully when users' routines change, which makes it useful as support for identifying anomalous accesses.",
+  "keywords": ["Anomaly detection", "Isolation Forest", "PostgreSQL", "Database security", "Unsupervised learning"],
+  "siglas": [
+    ["ABNT", "Associação Brasileira de Normas Técnicas"],
+    ["AUC", "Área sob a curva (Area Under the Curve)"],
+    ["DDL", "Linguagem de definição de dados (Data Definition Language)"],
+    ["DML", "Linguagem de manipulação de dados (Data Manipulation Language)"],
+    ["IC", "Intervalo de confiança"],
+    ["IF", "Isolation Forest"],
+    ["IP", "Internet Protocol"],
+    ["JSON", "JavaScript Object Notation"],
+    ["LGPD", "Lei Geral de Proteção de Dados Pessoais"],
+    ["MAD", "Desvio absoluto mediano (Median Absolute Deviation)"],
+    ["p.p.", "Pontos percentuais"],
+    ["PR-AUC", "Área sob a curva precisão–recall"],
+    ["RBAC", "Controle de acesso baseado em papéis (Role-Based Access Control)"],
+    ["ROC", "Receiver Operating Characteristic"],
+    ["SACLA", "Sistema de Análise Comportamental de Logs de Acesso"],
+    ["SGBD", "Sistema gerenciador de banco de dados"],
+    ["SQL", "Structured Query Language"]
+  ]
+}

@@ -112,6 +112,16 @@ services:
     depends_on:
       - monitor
 
+  # Fase 9: monografia. Gera o .docx e o PDF de conferência (`python tasks.py monografia`).
+  docs:
+    build:
+      context: docker/docs
+    image: sacla-docs:node24.11.1
+    profiles: ["docs"]
+    working_dir: /app
+    volumes:
+      - .:/app
+
 networks:
   rede_lan:
     ipam:

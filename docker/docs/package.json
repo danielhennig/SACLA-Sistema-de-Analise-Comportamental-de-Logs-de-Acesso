@@ -1,0 +1,8 @@
+{
+  "name": "sacla-monografia",
+  "private": true,
+  "description": "Gera a monografia do TCC em .docx (Fase 9). Versões fixadas.",
+  "dependencies": {
+    "docx": "9.14.0"
+  }
+}

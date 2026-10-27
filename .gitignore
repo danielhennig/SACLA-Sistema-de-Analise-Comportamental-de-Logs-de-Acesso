@@ -16,6 +16,9 @@ __pycache__/
 # Claude Code (configuração local pessoal)
 .claude/settings.local.json
 
+# Trava do LibreOffice (geração da monografia)
+.~lock.*#
+
 # Editores / SO
 .idea/
 .DS_Store

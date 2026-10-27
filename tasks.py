@@ -27,6 +27,8 @@ ANALYSIS = [*COMPOSE, "run", "--rm", "-T", "analise"]
 PANEL = [*COMPOSE, "--profile", "dashboard"]
 PANEL_URL = "http://localhost:8501"
 MONITOR_CLI = [*PANEL, "run", "--rm", "-T", "monitor", "python", "-m", "sacla.cli"]
+# Monografia (Fase 9): Node + LibreOffice, só no perfil docs.
+DOCS = [*COMPOSE, "--profile", "docs", "run", "--rm", "-T", "docs"]
 # Volumes recriados pelo reset (nome do projeto `sacla` + nome no docker-compose.yml).
 DB_VOLUMES = ["sacla_pgdata", "sacla_pglogs"]
 
@@ -172,6 +174,20 @@ def _simulate_plan(command: str, resimulate: bool) -> dict[str, list[Any]]:
     return plan
 
 
+def monografia(extra: list[str]) -> None:
+    """Gera a monografia (.docx, padrão ABNT) e o PDF de conferência em data/monografia/."""
+    run([*DOCS, "node", "docs/monografia/gerar.js"])
+    run(
+        [
+            *DOCS,
+            "python3",
+            "docs/monografia/pdf.py",
+            "docs/monografia/SACLA-monografia.docx",
+            "data/monografia",
+        ]
+    )
+
+
 def report(extra: list[str]) -> None:
     """Relatório de anomalias do teste e figuras do experimento (ex.: --exp-id <pasta>)."""
     run([*ANALYSIS, "python", "-m", "evaluation.cli", "report", *extra])
@@ -277,6 +293,7 @@ TASKS: dict[str, Callable[[list[str]], None]] = {
     "ablation": ablation,
     "drift": drift,
     "report": report,
+    "monografia": monografia,
     "fit": fit,
     "score": score,
     "build": build,

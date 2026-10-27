@@ -189,6 +189,13 @@ O visual (cores, tipografia e modo escuro) fica em `.streamlit/config.toml` (D51
 As figuras (PNG 300 dpi e PDF) e as legendas sugeridas (`figuras/legendas.md`) estão prontas
 para a monografia.
 
+## Monografia
+
+O texto do TCC, no padrão ABNT, fica em `docs/monografia/` (capítulos em Markdown e
+referências conferidas). `python tasks.py monografia` gera `docs/monografia/SACLA-monografia.docx`
+e um PDF de conferência em `data/monografia/`. Detalhes em
+[docs/monografia/LEIAME.md](docs/monografia/LEIAME.md).
+
 ## Estrutura
 
 ```
