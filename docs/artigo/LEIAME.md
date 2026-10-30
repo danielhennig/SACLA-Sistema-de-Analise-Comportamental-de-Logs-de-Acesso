@@ -15,6 +15,9 @@ os `.sty` com fim de linha LF, e o original usa CRLF). O conteúdo é o mesmo da
   (pdflatex, bibtex, pdflatex duas vezes), e gera em `data/artigo/` o `SACLA-artigo.pdf` e o
   `SACLA-artigo-overleaf.zip`. O único aviso esperado é uma caixa 12 pt larga demais na capa,
   que também aparece no modelo original.
+- **Avisos esperados no Overleaf**, todos do modelo ou da classe: babel `brazil` obsoleto (vem
+  do `abntex2.cls`), `\settocpreprocessor` obsoleto (abnTeX2/memoir) e `subfig` antigo
+  (carregado pelo `main.tex` do modelo).
 
 ## Estrutura
 
@@ -49,6 +52,10 @@ Os campos entre colchetes são do autor e não estão no repositório:
 - Tabelas de dados numéricos usam booktabs, sem bordas laterais; quadros, de conteúdo textual,
   têm todas as bordas. As colunas de texto dos quadros usam o tipo `L{largura}`, alinhado à
   esquerda, definido em `main.tex`.
+- Figuras em PNG **RGB, sem transparência**. Com canal alfa (RGBA, o padrão do matplotlib), o
+  pdfTeX recomprime cada imagem em toda passada: as figuras RGBA quase dobravam o tempo de
+  compilação e faziam o Overleaf gratuito estourar o tempo. Para converter uma figura nova:
+  `Image.alpha_composite(Image.new("RGBA", im.size, "white"), im).convert("RGB")` (Pillow).
 - `\iforest` escreve *Isolation Forest* em itálico.
 - Autores institucionais no `.bib` usam `{\relax Nome}`, que deixa a referência em maiúsculas e
   a citação em caixa mista (NBR 6023 e NBR 10520).
