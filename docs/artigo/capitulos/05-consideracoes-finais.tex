@@ -1,0 +1,52 @@
+% ==============================================================================
+% CAPÍTULO 5 - CONSIDERAÇÕES FINAIS
+% ==============================================================================
+
+\section{Considerações finais}
+\label{sec:consideracoes}
+
+Este trabalho apresentou o SACLA, um sistema que lê o log nativo do PostgreSQL e aponta, com
+explicação, janelas de cinco minutos em que um usuário se comporta de forma atípica em relação
+ao próprio histórico, usando um único algoritmo de aprendizado não supervisionado, o \iforest{}.
+O problema de pesquisa perguntava se isso é possível com desempenho comparável ao de regras de
+especialista e com alertas interpretáveis. A resposta é sim, com uma ressalva importante: o
+modelo não supera as regras sozinho, mas as complementa.
+
+Os objetivos específicos foram cumpridos. O registro de log foi configurado e o seu custo
+medido, cerca de 10\% de latência mediana com o registro de linhas. O laboratório reproduz
+quatro semanas de acessos de dez usuários sobre a base Pagila, com anomalias cujos rótulos
+ficam fora do log. O \iforest{}, ajustado só na validação, obteve F1 de 68,1\% na simulação de
+referência e de 66,3\% em cinco simulações confirmatórias nunca vistas; as regras, escritas
+conhecendo os tipos de anomalia, ficaram perto de 80\%. A combinação dos dois detectou de 84\% a
+86\% dos cenários, cerca de 11 pontos a mais que as regras sozinhas, o que foi confirmado com
+teste estatístico em hipóteses registradas antes dos dados. Quando a rotina dos usuários muda
+de forma legítima, as regras perdem 15,9 pontos de F1, quase todos por causa de trocas de turno,
+e o \iforest{} perde 1,7.
+
+As contribuições do trabalho são cinco. A primeira é um detector que usa só o log nativo, sem
+extensões de auditoria nem alterações no SGBD, com o custo da instrumentação medido. A segunda
+são os atributos relativos ao histórico de cada usuário, com um cuidado metodológico que se
+mostrou decisivo: calcular os atributos das janelas de treino deixando um dia de fora, sem o que
+as frações de novidade não têm efeito no modelo. A terceira são os alertas explicados pelos
+atributos mais raros para o usuário e agrupados em episódios, o que tornou rápido descartar
+alarmes falsos como o da rotina \textit{batch}. A quarta é um laboratório reprodutível, com
+ruído legítimo, anomalias em três intensidades, um tipo inédito, mudanças de rotina e
+verificações automáticas entre o que foi executado e o que foi registrado. A quinta é uma
+avaliação com linha de base explícita, teste usado uma vez, réplicas, pré-registro, correção
+para comparações múltiplas e relato dos resultados que não se confirmaram.
+
+As principais limitações são o uso de dados sintéticos, desenhados pelo mesmo autor que escreveu
+as regras e o catálogo de mudanças; uma base pequena e um único SGBD; o custo de latência do
+registro de linhas; e a saturação do escore do \iforest{} para valores muito acima dos observados
+no treino.
+
+Como trabalhos futuros, o passo mais importante para a validade externa é aplicar o SACLA ao log
+de um servidor em produção, mesmo sem rótulos, e analisar os alertas com quem conhece o sistema.
+Outros caminhos são levar as regras para dentro do SACLA e alertar pela combinação dos dois
+detectores, com as regras de horário reaprendidas após mudanças confirmadas na triagem;
+reajustar o modelo periodicamente com uma janela móvel de histórico, o que trataria a deriva
+lenta dos dados e as mudanças permanentes de rotina; avaliar o \texttt{auto\_explain} com
+amostragem de comandos, medindo quanto de cobertura se preserva com menos custo; e acrescentar
+atributos que expressem a distância de cada valor ao máximo do histórico do usuário, além de
+avaliar variantes do algoritmo com cortes de inclinação aleatória, que reduzem os artefatos do
+escore em regiões sem dados \cite{hariri2021}.

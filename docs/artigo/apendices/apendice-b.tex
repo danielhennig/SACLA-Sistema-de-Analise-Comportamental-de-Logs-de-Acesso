@@ -1,0 +1,35 @@
+% ==============================================================================
+% APÊNDICE B
+% ==============================================================================
+
+\section{Reprodução do experimento}
+\label{apd:apendice-b}
+
+O código, a configuração e os resultados estão no repositório do projeto. Com o Docker em
+execução, os comandos abaixo recriam o ambiente e reproduzem cada análise; todo o processamento
+roda em contêineres com versões fixadas.
+
+\begin{lstlisting}[numbers=none]
+python tasks.py setup        # imagens, banco e Pagila do zero
+python tasks.py smoke        # gera eventos conhecidos e confere o jsonlog
+python tasks.py bench        # mede o custo do registro de log
+python tasks.py simulate     # 28 dias simulados, semente 42
+python tasks.py features     # janelas de 5 minutos, atributos e rótulos
+python tasks.py evaluate     # ajuste na validação, teste, regras e sensibilidade
+python tasks.py robustness --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1
+python tasks.py report       # relatório de anomalias e figuras
+python tasks.py confirm  --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1
+python tasks.py ablation --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1
+python tasks.py drift    --exp-id sim-s42-28d__w5m__ne200-ms1024-mf0.5-log1
+python tasks.py test         # testes automatizados
+\end{lstlisting}
+
+Para usar o SACLA em um log real, sem rótulos, o comando \texttt{fit} aprende com um período
+considerado normal, e o \texttt{score} analisa outro período e gera o relatório em HTML e CSV:
+
+\begin{lstlisting}[numbers=none]
+python tasks.py fit   --logs /logs --until 2026-03-16T03:00:00Z \
+                      --model data/sacla/detector.joblib
+python tasks.py score --logs /logs --since 2026-03-23T03:00:00Z \
+                      --model data/sacla/detector.joblib --out data/sacla/relatorio
+\end{lstlisting}

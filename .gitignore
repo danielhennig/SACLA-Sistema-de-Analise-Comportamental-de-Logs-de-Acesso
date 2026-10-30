@@ -19,6 +19,18 @@ __pycache__/
 # Trava do LibreOffice (geração da monografia)
 .~lock.*#
 
+# Auxiliares do LaTeX, se o artigo for compilado direto em docs/artigo
+docs/artigo/*.aux
+docs/artigo/*.bbl
+docs/artigo/*.blg
+docs/artigo/*.brf
+docs/artigo/*.log
+docs/artigo/*.lof
+docs/artigo/*.lot
+docs/artigo/*.out
+docs/artigo/*.toc
+docs/artigo/*.pdf
+
 # Editores / SO
 .idea/
 .DS_Store

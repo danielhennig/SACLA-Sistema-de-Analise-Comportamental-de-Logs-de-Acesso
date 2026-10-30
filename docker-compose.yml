@@ -122,6 +122,16 @@ services:
     volumes:
       - .:/app
 
+  # Fase 9: artigo no modelo LaTeX da UNIJUÍ (`python tasks.py artigo`).
+  latex:
+    build:
+      context: docker/latex
+    image: sacla-latex:bookworm
+    profiles: ["docs"]
+    working_dir: /app
+    volumes:
+      - .:/app
+
 networks:
   rede_lan:
     ipam:

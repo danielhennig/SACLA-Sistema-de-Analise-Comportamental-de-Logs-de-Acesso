@@ -1,0 +1,60 @@
+% ==============================================================================
+% CAPÍTULO 2 - METODOLOGIA
+% ==============================================================================
+
+\section{Metodologia}
+\label{sec:metodologia}
+
+Esta pesquisa é de natureza aplicada, com abordagem quantitativa e procedimento experimental:
+um sistema é construído e avaliado em laboratório, com dados gerados de forma controlada e
+métricas definidas antes da análise. Quanto aos objetivos, é exploratória, ao investigar se o
+log nativo basta para detectar acessos anômalos, e descritiva, ao medir com que precisão e
+cobertura isso acontece. Uma pesquisa bibliográfica sustenta a fundamentação e a comparação
+com os trabalhos relacionados.
+
+A escolha do experimento em laboratório decorre de uma restrição prática: não existem bases
+públicas rotuladas de acessos a bancos de dados com anomalias conhecidas, e rótulos confiáveis
+são indispensáveis para medir o desempenho de um detector. Por isso, todo acesso avaliado é
+gerado por um simulador, executado de verdade em um servidor PostgreSQL e registrado pelo
+próprio servidor, e os rótulos das anomalias ficam em um manifesto à parte, que o sistema
+avaliado nunca lê.
+
+O trabalho seguiu sete etapas, cada uma concluída com uma revisão antes da seguinte:
+
+\begin{enumerate}[label=\alph*)]
+    \item \textbf{revisão bibliográfica} sobre segurança de bancos de dados, o registro de log
+          do PostgreSQL, detecção de anomalias e avaliação de detectores;
+    \item \textbf{laboratório e instrumentação do log}: servidor em contêineres, base de dados
+          de exemplo, configuração do registro de log e medição do seu custo;
+    \item \textbf{simulação}: usuários com rotinas e ruído legítimo, anomalias injetadas em
+          várias intensidades e verificações automáticas de coerência entre o que foi executado
+          e o que foi registrado;
+    \item \textbf{desenvolvimento do SACLA}: leitura do log, extração de eventos, atributos por
+          janela, modelo, limiar, explicação dos alertas e relatório;
+    \item \textbf{avaliação experimental}: divisão temporal em treino, validação e teste;
+          ajuste de hiperparâmetros só na validação; teste usado uma vez; comparação com regras
+          de especialista e com a combinação das duas abordagens;
+    \item \textbf{verificação da solidez}: réplicas com outras sementes de simulação; uma
+          validação confirmatória em simulações novas, com hipóteses registradas antes dos
+          dados; uma ablação dos grupos de atributos; e um cenário com mudanças legítimas na
+          rotina dos usuários, também pré-registrado;
+    \item \textbf{documentação e reprodutibilidade}: cada decisão técnica foi registrada com a
+          sua fonte e evidência, e todo o experimento é reproduzível por comandos.
+\end{enumerate}
+
+As métricas são as usuais para detectores binários com classes desbalanceadas: precisão,
+recall e F1 por janela de tempo, área sob as curvas ROC e precisão--recall, e a fração de
+cenários anômalos detectados, em que um cenário conta como detectado se ao menos uma de suas
+janelas gera alerta. Para as comparações entre detectores, usam-se intervalos de confiança de
+95\% por \textit{bootstrap}, testes de McNemar e de permutação pareada e a correção de Holm para
+comparações múltiplas, descritos no Referencial Teórico.
+
+O pré-registro consistiu em fixar, num \textit{commit} datado do repositório do projeto e antes
+de gerar qualquer dado novo, a configuração congelada do modelo, as sementes das simulações, as
+hipóteses, os testes e o nível de significância, com o compromisso de relatar os resultados
+como saíssem \cite{nosek2018}. Todo o processamento roda em contêineres com versões fixadas, as
+sementes aleatórias são fixas e o código tem 206 testes automatizados; a cada etapa, os números
+das etapas anteriores foram reproduzidos exatamente, com diferença máxima da ordem de
+$10^{-16}$. Um assistente de IA generativa foi usado como apoio na implementação, na execução
+dos comandos e na redação, conforme a declaração ao final do trabalho; os resultados vêm da
+execução do código e podem ser reproduzidos pelos comandos do Apêndice B.

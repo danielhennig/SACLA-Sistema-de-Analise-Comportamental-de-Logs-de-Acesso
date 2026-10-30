@@ -196,6 +196,12 @@ referências conferidas). `python tasks.py monografia` gera `docs/monografia/SAC
 e um PDF de conferência em `data/monografia/`. Detalhes em
 [docs/monografia/LEIAME.md](docs/monografia/LEIAME.md).
 
+O mesmo trabalho em formato de artigo, no modelo LaTeX do curso da UNIJUÍ
+([dornelles/tcc-artigo-template-latex](https://github.com/dornelles/tcc-artigo-template-latex)),
+fica em `docs/artigo/`. `python tasks.py artigo` compila como o Overleaf (pdflatex e bibtex) e
+gera em `data/artigo/` o PDF de conferência e o `.zip` para enviar ao Overleaf. Detalhes em
+[docs/artigo/LEIAME.md](docs/artigo/LEIAME.md).
+
 ## Estrutura
 
 ```

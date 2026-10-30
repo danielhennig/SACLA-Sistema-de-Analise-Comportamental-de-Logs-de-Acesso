@@ -32,7 +32,8 @@ Ações do painel que mudam o estado de uma fonte (limpar, reprocessar) usam `St
 (conjunto rotulado em `data/features/`) · `evaluate` (resultados em `results/experimentos/`)
 · `robustness --exp-id ID` · `confirm --exp-id ID` (validação confirmatória pré-registrada, D52)
 · `ablation --exp-id ID` (ablação na validação) · `drift --exp-id ID` (tráfego não estacionário, D55) · `report` (relatório do teste e figuras)
-· `monografia` (texto do TCC em .docx ABNT e PDF de conferência; `docs/monografia/`) · `fit`/`score` (SACLA
+· `monografia` (texto do TCC em .docx ABNT e PDF de conferência; `docs/monografia/`)
+· `artigo` (artigo no modelo LaTeX da UNIJUÍ; PDF e .zip do Overleaf em `data/artigo/`) · `fit`/`score` (SACLA
 no uso real, sem rótulos) · `dashboard`/`dashboard-stop` (monitor + painel em
 http://localhost:8501) · `monitor --once` · `monitor-fit --source ID` · `build` (só a imagem)
 · `test` · `lint` · `fmt` · `lock` · `psql`

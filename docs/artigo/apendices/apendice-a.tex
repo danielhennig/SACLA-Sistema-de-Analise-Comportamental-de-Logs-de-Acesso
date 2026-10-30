@@ -1,0 +1,43 @@
+% ==============================================================================
+% APÊNDICE A
+% ==============================================================================
+
+\section{Configuração de log do PostgreSQL}
+\label{apd:apendice-a}
+
+Configuração incluída no servidor do laboratório (arquivo \nolinkurl{docker/postgres/sacla.conf} do
+repositório do projeto). A justificativa de cada parâmetro, com a documentação oficial, está em
+\nolinkurl{docs/decisoes.md}.
+
+\begin{lstlisting}[numbers=none]
+# Destino e arquivos
+logging_collector = on                  # obrigatório para jsonlog
+log_destination = 'jsonlog'
+log_directory = '/var/log/postgresql/sacla'
+log_filename = 'postgresql-%Y%m%d_%H%M%S.log'
+log_file_mode = 0644
+log_rotation_age = 0
+log_rotation_size = 100MB
+log_timezone = 'UTC'
+
+# Conexões (falhas de autenticação são registradas sempre)
+log_connections = 'receipt,authentication,authorization'
+log_disconnections = on
+
+# Comandos: uma linha por comando concluído, com duração e texto
+log_statement = 'none'
+log_min_duration_statement = 0
+log_min_error_statement = error
+compute_query_id = on
+
+# Linhas retornadas e afetadas (auto_explain)
+shared_preload_libraries = 'auto_explain'
+auto_explain.log_min_duration = 0
+auto_explain.log_analyze = on
+auto_explain.log_timing = off
+auto_explain.log_buffers = off
+auto_explain.log_format = 'json'
+auto_explain.log_nested_statements = off
+auto_explain.sample_rate = 1
+auto_explain.log_level = 'LOG'
+\end{lstlisting}

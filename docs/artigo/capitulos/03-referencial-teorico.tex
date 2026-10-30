@@ -1,0 +1,157 @@
+% ==============================================================================
+% CAPÍTULO 3 - REFERENCIAL TEÓRICO
+% ==============================================================================
+
+\section{Referencial teórico}
+\label{sec:referencial-teorico}
+
+Esta seção reúne os conceitos em que o trabalho se apoia, organizados em dois eixos: os
+fundamentos (segurança de bancos de dados, o registro de log do PostgreSQL, detecção de
+anomalias com o \iforest{} e os métodos de avaliação) e os trabalhos relacionados à detecção de
+acessos anômalos em bancos de dados relacionais, agrupados pela referência de normalidade que
+adotam.
+
+\subsection{Segurança de bancos de dados e o log do PostgreSQL}
+\label{sec:seguranca-log}
+
+O principal mecanismo de confidencialidade de um banco de dados é o controle de acesso, que
+decide, a cada operação, se o sujeito tem permissão sobre o objeto. \citeonline{bertino2005}
+descrevem os modelos clássicos: discricionário, mandatório e baseado em papéis (RBAC). O
+controle de acesso responde a uma pergunta binária e não avalia o contexto em que uma operação
+permitida acontece. Esse é o terreno das ameaças internas: nos mais de setecentos casos reunidos
+por \citeonline{cappelli2012}, o que denuncia o problema é o uso que se faz do acesso, e não a
+falta de permissão. A detecção de comportamento anômalo complementa o controle de acesso ao
+perguntar se a operação é típica para quem a executa.
+
+O PostgreSQL registra eventos do servidor de acordo com parâmetros de configuração
+\cite{postgresql2025a}. Com \texttt{log\_destination = jsonlog}, cada entrada vira um objeto
+JSON com horário, usuário, banco, aplicação, endereço de origem, sessão, severidade, mensagem e
+texto do comando; com \texttt{log\_min\_duration\_statement = 0}, todo comando concluído é
+registrado; \texttt{log\_connections} e \texttt{log\_disconnections} registram conexões, e as
+falhas de autenticação são sempre registradas. O log nativo, porém, não informa quantas linhas
+um comando retornou ou alterou. Essa informação vem do módulo \texttt{auto\_explain}, que
+registra automaticamente os planos de execução \cite{postgresql2025b}: com
+\texttt{log\_analyze}, o plano traz a contagem real de linhas de cada nó e o nome das tabelas
+acessadas.
+
+\subsection{Detecção de anomalias e o \textit{Isolation Forest}}
+\label{sec:anomalias-iforest}
+
+\citeonline{chandola2009} definem anomalias como padrões que não estão de acordo com uma noção
+bem definida de comportamento normal, e distinguem anomalias pontuais, contextuais e coletivas.
+Um acesso às três da manhã é normal para uma rotina noturna e atípico para um atendente de
+balcão: é uma anomalia contextual, tratada neste trabalho ao comparar cada usuário com o próprio
+histórico. Como rótulos de acessos indevidos são escassos e cobrem só ataques já conhecidos, a
+abordagem não supervisionada é a mais natural. Ela enfrenta, porém, o desbalanceamento entre
+classes, a deriva do comportamento normal ao longo do tempo \cite{gama2014} e a distância entre
+o laboratório e o uso real \cite{sommer2010}.
+
+O \iforest{} parte da ideia de que anomalias são ``poucas e diferentes'' e, por isso, mais fáceis
+de isolar \cite{liu2008,liu2012}. Cada árvore é construída sobre uma subamostra de $\psi$
+observações: em cada nó, sorteiam-se um atributo e um valor de corte entre o mínimo e o máximo
+desse atributo, até isolar cada observação. Uma observação atípica tende a ser isolada perto da
+raiz, com um caminho curto. O comprimento médio do caminho é normalizado pelo de uma busca
+malsucedida em uma árvore binária com $n$ elementos,
+
+\begin{equation}
+    c(n) = 2H(n-1) - \frac{2(n-1)}{n},
+    \label{eq:cn}
+\end{equation}
+
+\noindent em que $H(i)$ é o número harmônico, aproximado por $\ln(i) + 0{,}5772156649$. O escore
+de anomalia de uma observação $x$ é
+
+\begin{equation}
+    s(x, n) = 2^{-\frac{E(h(x))}{c(n)}},
+    \label{eq:score}
+\end{equation}
+
+\noindent em que $E(h(x))$ é a média do comprimento do caminho de $x$ nas árvores. Escores
+próximos de 1 indicam anomalias; escores bem abaixo de 0,5, observações normais. O algoritmo
+não usa distância nem densidade, tem custo proporcional a $t\,\psi \log \psi$ para $t$ árvores e
+funciona bem com subamostras pequenas \cite{liu2012}. A implementação usada é a da biblioteca
+scikit-learn \cite{pedregosa2011}, em que o método \texttt{score\_samples} devolve o oposto do
+escore original e o parâmetro \texttt{contamination} só define o limiar de decisão, sem alterar
+as árvores \cite{scikitlearn2026}. Duas limitações aparecem nos resultados: os cortes paralelos
+aos eixos produzem artefatos em regiões sem dados \cite{hariri2021}, e, como os cortes ficam entre
+o mínimo e o máximo do treino, o escore satura para valores muito acima do observado.
+
+\subsection{Avaliação de detectores}
+\label{sec:avaliacao-detectores}
+
+A partir da matriz de confusão, a precisão é a fração dos alertas que eram anomalias, o recall é
+a fração das anomalias que geraram alerta e o F1 é a média harmônica dos dois. Quando o detector
+produz um escore, as áreas sob as curvas ROC e precisão--recall (PR-AUC) o avaliam sem fixar um
+limiar; com classes desbalanceadas, a curva precisão--recall é mais informativa
+\cite{saito2015}.
+
+Para comparar detectores, não basta a diferença entre médias. O \textit{bootstrap} percentil
+estima intervalos de confiança reamostrando os dados \cite{efron1993}; quando as observações são
+dependentes, como janelas consecutivas de um mesmo usuário, reamostram-se blocos de observações
+\cite{kunsch1989}. O teste de McNemar compara dois classificadores nos mesmos casos, usando só os
+discordantes, e tem baixa taxa de erro do tipo~I \cite{dietterich1998}. O teste de permutação
+pareado constrói a distribuição nula trocando as saídas dos dois detectores dentro de cada par
+\cite{noreen1989}, o que serve a métricas como o F1. Com várias hipóteses, a correção de
+\citeonline{holm1979} controla a taxa de erro da família. Por fim, o pré-registro separa a
+geração de hipóteses do seu teste e evita que a pergunta mude depois de vista a resposta
+\cite{nosek2018}.
+
+\subsection{Trabalhos relacionados}
+\label{sec:trabalhos-relacionados}
+
+\textbf{Perfis por papel a partir da sintaxe.} \citeonline{kamra2008} mineram as consultas SQL
+do log de auditoria para construir perfis de acesso normal: com controle de acesso por papéis,
+um classificador aponta o usuário cujas consultas não se parecem com as do seu papel; sem
+papéis, as consultas são agrupadas e os grupos fazem o papel dos perfis.
+\citeonline{shebaro2013} levam essa ideia para dentro do PostgreSQL, com atributos da árvore
+sintática de cada comando e um classificador bayesiano que estima o papel mais provável; se ele
+difere do papel de quem executou o comando, o sistema emite um alarme.
+\citeonline{ronao2016} seguem a mesma formulação, com floresta aleatória e análise de
+componentes principais. Essas abordagens perguntam se a consulta se parece com as do papel e não
+captam, por exemplo, um atendente que faz consultas típicas de atendente, mas em volume, horário
+ou origem fora do seu costume.
+
+\textbf{Perfis a partir dos dados acessados.} \citeonline{mathew2010} partem da premissa de que a
+sintaxe da consulta, sozinha, é um sinal fraco da intenção do usuário, e modelam o padrão de
+acesso de cada usuário pelos dados que as suas consultas efetivamente acessam. Essa preocupação
+com o que foi lido também está no SACLA, que usa as linhas retornadas e as tabelas acessadas.
+
+\textbf{Sistemas de detecção e resposta.} \citeonline{sallam2017} apresentam o DBSAFE, que
+constrói perfis do comportamento normal de usuários e aplicações, detecta acessos anômalos e
+responde a eles com políticas predefinidas, automáticas ou humanas. A resposta automática está
+fora do escopo deste trabalho, em que a decisão cabe sempre a uma pessoa. Na avaliação de
+detectores, \citeonline{goldstein2016} compararam 19 algoritmos não supervisionados em 10
+conjuntos de dados, e \citeonline{sommer2010} recomendam que a avaliação explique o que o
+detector encontra e reconheça as limitações dos dados usados.
+
+O \autoref{qdr:trabalhos} resume a posição do SACLA. Ele se diferencia por usar só o log nativo,
+sem modificar o SGBD; por agregar a atividade de cada usuário em janelas e compará-la com o
+histórico do próprio usuário, o que capta volume, horário, origem, erros e falhas de
+autenticação; por explicar cada alerta; e por uma avaliação com linha de base, réplicas e
+hipóteses pré-registradas.
+
+\begin{quadro}[htb]
+    \centering
+    \ABNTEXfontereduzida
+    \begin{minipage}{\textwidth}
+        \caption{\label{qdr:trabalhos}Comparação entre este trabalho e os trabalhos relacionados}
+        \begin{tabular}{|L{2.8cm}|L{3.2cm}|L{2.0cm}|L{3.0cm}|L{2.6cm}|}
+            \hline
+            \textbf{Trabalho} & \textbf{Fonte de dados} & \textbf{Unidade} & \textbf{Aprendizado} & \textbf{Normalidade} \\
+            \hline
+            \citeonline{kamra2008} & log de auditoria das consultas & consulta & classificação ou agrupamento & papel ou grupo \\
+            \hline
+            \citeonline{mathew2010} & dados acessados pelas consultas & consulta & aprendizado estatístico & perfil de acesso aos dados \\
+            \hline
+            \citeonline{shebaro2013} & árvore sintática, dentro do PostgreSQL & consulta & classificador bayesiano & papel \\
+            \hline
+            \citeonline{ronao2016} & consultas em banco com papéis & consulta & floresta aleatória e PCA & papel \\
+            \hline
+            \citeonline{sallam2017} & perfis de usuários e aplicações & consulta & perfis aprendidos em treino & usuário ou aplicação \\
+            \hline
+            Este trabalho & log nativo (\textit{jsonlog} e \texttt{auto\_explain}) & janela de 5~min por usuário & \iforest{}, não supervisionado & histórico do próprio usuário \\
+            \hline
+        \end{tabular}
+        \legend{Fonte: Própria do autor (2026).}
+    \end{minipage}
+\end{quadro}

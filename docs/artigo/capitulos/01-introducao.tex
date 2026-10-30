@@ -1,0 +1,64 @@
+% ==============================================================================
+% CAPÍTULO 1 - INTRODUÇÃO
+% ==============================================================================
+
+\section{Introdução}
+\label{sec:introducao}
+
+Os bancos de dados relacionais guardam o que as organizações têm de mais sensível: cadastros
+de clientes, pagamentos, contratos e dados de saúde. A segurança desses sistemas se apoia
+tradicionalmente no controle de acesso, que define quem pode ler ou alterar cada objeto
+\cite{bertino2005}. O controle de acesso, porém, responde apenas se uma operação é permitida;
+ele não diz se uma operação permitida faz sentido para quem a executa naquele momento. Um
+atendente que pode consultar clientes não é barrado ao consultar milhares deles de madrugada,
+e um serviço com permissão de escrita não é impedido de alterar quinhentos registros de uma vez.
+
+Esse limite importa porque uma parte relevante dos incidentes envolve pessoas ou credenciais
+legítimas. O guia de ameaças internas do CERT, construído a partir de mais de setecentos casos,
+descreve sabotagem, roubo de propriedade intelectual e fraude cometidos por pessoas com acesso
+autorizado \cite{cappelli2012}. Uma credencial roubada produz o mesmo efeito: do ponto de vista
+do banco, quem age é o usuário legítimo. No Brasil, a Lei Geral de Proteção de Dados Pessoais (LGPD)
+exige dos agentes de tratamento ``medidas de segurança, técnicas e administrativas aptas a
+proteger os dados pessoais de acessos não autorizados'' \cite[art.~46]{brasil2018}.
+
+Uma forma de perceber esses acessos é observar o comportamento. Cada usuário de um banco de
+dados tem uma rotina: horários, volume de comandos, tabelas consultadas, origem das conexões.
+Um desvio forte dessa rotina não prova um ataque, mas é o tipo de sinal que merece a atenção de
+quem administra o sistema. Essa é a ideia da detecção de anomalias \cite{chandola2009}, já
+aplicada a bancos de dados relacionais \cite{kamra2008,sallam2017}. O PostgreSQL oferece, desde
+a versão 15, um formato de log estruturado em JSON (\textit{jsonlog}), que registra comandos,
+erros, conexões e falhas de autenticação com campos tipados \cite{postgresql2025a}: uma fonte de
+dados disponível em qualquer instalação, sem extensões de auditoria.
+
+O problema que orienta este trabalho é: \textbf{é possível identificar acessos anômalos a um
+banco de dados PostgreSQL usando apenas o seu log nativo e aprendizado de máquina não
+supervisionado, com desempenho comparável ao de regras escritas por um especialista e com
+alertas que um analista consiga interpretar?}
+
+Para respondê-lo, o trabalho apresenta o \textbf{SACLA} (Sistema de Análise Comportamental de
+Logs de Acesso), que lê o log nativo do PostgreSQL e aponta janelas de cinco minutos em que um
+usuário se comporta de forma atípica em relação ao próprio histórico. O sistema usa um único
+algoritmo de aprendizado não supervisionado, o \iforest{} \cite{liu2008}, e explica cada alerta
+em linguagem direta. Ele \textbf{auxilia} a identificação de acessos anômalos: um alerta indica
+comportamento atípico, e a decisão sobre o que ele significa cabe a quem analisa.
+
+O objetivo geral é desenvolver e avaliar esse sistema. Os objetivos específicos são:
+configurar o registro de log do PostgreSQL e medir o seu custo; construir um laboratório
+reprodutível, com usuários simulados e anomalias cujos rótulos ficam fora do log; extrair do
+log atributos por usuário e janela de tempo, inclusive relativos ao histórico de cada usuário;
+treinar e ajustar o \iforest{} com um protocolo que use o conjunto de teste uma única vez,
+comparando-o a regras de especialista; explicar cada alerta; e verificar a solidez dos
+resultados com validação confirmatória pré-registrada, testes estatísticos, ablação de
+atributos e um cenário com mudanças legítimas de rotina.
+
+O diferencial do trabalho está na combinação de três elementos: uma fonte de dados que já
+existe em qualquer instalação do PostgreSQL; a comparação de cada usuário consigo mesmo, e não
+com um papel ou uma média geral; e uma avaliação que segue as recomendações da literatura de
+aprendizado de máquina aplicado à detecção de intrusão \cite{sommer2010}, com linha de base
+explícita, réplicas, hipóteses registradas antes dos dados e relato dos resultados que não se
+confirmaram.
+
+O artigo está organizado da seguinte forma. A seção de Metodologia descreve o delineamento da
+pesquisa. O Referencial Teórico apresenta os fundamentos e os trabalhos relacionados. O
+Desenvolvimento detalha os requisitos, a arquitetura, a implementação e os resultados, e as
+Considerações Finais concluem o trabalho.

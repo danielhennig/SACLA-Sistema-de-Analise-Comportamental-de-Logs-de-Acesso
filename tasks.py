@@ -29,6 +29,8 @@ PANEL_URL = "http://localhost:8501"
 MONITOR_CLI = [*PANEL, "run", "--rm", "-T", "monitor", "python", "-m", "sacla.cli"]
 # Monografia (Fase 9): Node + LibreOffice, só no perfil docs.
 DOCS = [*COMPOSE, "--profile", "docs", "run", "--rm", "-T", "docs"]
+# Artigo no modelo LaTeX da UNIJUÍ (Fase 9): TeX Live, só no perfil docs.
+LATEX = [*COMPOSE, "--profile", "docs", "run", "--rm", "-T", "latex"]
 # Volumes recriados pelo reset (nome do projeto `sacla` + nome no docker-compose.yml).
 DB_VOLUMES = ["sacla_pgdata", "sacla_pglogs"]
 
@@ -188,6 +190,11 @@ def monografia(extra: list[str]) -> None:
     )
 
 
+def artigo(extra: list[str]) -> None:
+    """Compila o artigo (modelo LaTeX da UNIJUÍ): PDF e .zip do Overleaf em data/artigo/."""
+    run([*LATEX, "sh", "docker/latex/compilar.sh"])
+
+
 def report(extra: list[str]) -> None:
     """Relatório de anomalias do teste e figuras do experimento (ex.: --exp-id <pasta>)."""
     run([*ANALYSIS, "python", "-m", "evaluation.cli", "report", *extra])
@@ -294,6 +301,7 @@ TASKS: dict[str, Callable[[list[str]], None]] = {
     "drift": drift,
     "report": report,
     "monografia": monografia,
+    "artigo": artigo,
     "fit": fit,
     "score": score,
     "build": build,

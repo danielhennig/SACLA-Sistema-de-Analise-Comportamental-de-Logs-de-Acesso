@@ -1,0 +1,763 @@
+% ==============================================================================
+% CAPÍTULO 4 - DESENVOLVIMENTO
+% ==============================================================================
+
+\section{Desenvolvimento}
+\label{sec:desenvolvimento}
+
+Esta seção descreve o objeto do estudo: os requisitos do SACLA e a instrumentação do log, a
+arquitetura do laboratório e do sistema, as decisões de implementação e os resultados da
+avaliação. As decisões técnicas, com fonte e evidência, estão registradas no repositório do
+projeto, no arquivo \texttt{docs/decisoes.md}.
+
+%-------------------------------------------------------------------------------
+% Análise e Requisitos
+%-------------------------------------------------------------------------------
+\subsection{Análise e requisitos}
+\label{sec:analise-e-requisitos}
+
+O problema de pesquisa impõe requisitos ao sistema e à forma de avaliá-lo, resumidos no
+\autoref{qdr:requisitos}. Os dois primeiros delimitam a fonte de dados e a unidade de análise;
+os três seguintes, o uso real, em que não há rótulos e a decisão cabe a uma pessoa; os dois
+últimos, a validade da avaliação.
+
+\begin{quadro}[htb]
+    \centering
+    \ABNTEXfontereduzida
+    \begin{minipage}{\textwidth}
+        \caption{\label{qdr:requisitos}Requisitos do SACLA e decisões adotadas}
+        \begin{tabular}{|L{6.0cm}|L{9.1cm}|}
+            \hline
+            \textbf{Requisito} & \textbf{Decisão adotada} \\
+            \hline
+            Usar só o log nativo, sem extensões de auditoria nem alterações no SGBD &
+            \textit{jsonlog} e o módulo \texttt{auto\_explain}, distribuído com o PostgreSQL,
+            ativados só por parâmetros de configuração \\
+            \hline
+            Comparar cada usuário com o próprio histórico &
+            janelas de 5 minutos por usuário e atributos relativos ao histórico de treino \\
+            \hline
+            Funcionar sem rótulos no uso real &
+            \iforest{} não supervisionado; limiar definido pela fração de alertas que o analista
+            aceita receber \\
+            \hline
+            Explicar cada alerta &
+            atributos mais raros para o usuário, em texto, e alertas agrupados em episódios \\
+            \hline
+            Apenas auxiliar a identificação &
+            relatório para triagem humana; nenhuma ação automática sobre o banco \\
+            \hline
+            Avaliar com rótulos confiáveis e sem vazamento &
+            laboratório com rótulos em um manifesto à parte; o pacote do sistema não importa o
+            simulador nem a avaliação, o que um teste automatizado garante \\
+            \hline
+            Reprodutibilidade &
+            contêineres com versões fixadas, sementes fixas e configuração em arquivos YAML \\
+            \hline
+        \end{tabular}
+        \legend{Fonte: Própria do autor (2026).}
+    \end{minipage}
+\end{quadro}
+
+O servidor é o PostgreSQL 18.6, em Docker, a partir de uma imagem fixada por
+\textit{digest}. A escolha decorre do primeiro requisito: o formato \textit{jsonlog}, disponível
+desde a versão 15, entrega campos tipados sem expressões regulares sobre texto livre
+\cite{postgresql2025a}. A base de dados é a Pagila, uma adaptação da base de exemplo Sakila que
+modela uma locadora de filmes, com 15 tabelas, entre elas 51.805 locações e 999 clientes
+\cite{pagila2026}. O SACLA é escrito em Python 3.13, com pandas 3.0 e scikit-learn 1.9.1
+\cite{pedregosa2011}, e todo o processamento roda em contêineres com as dependências
+congeladas.
+
+O registro de log adotado usa os parâmetros descritos no Referencial Teórico, com
+\texttt{log\_timezone = 'UTC'}, \texttt{compute\_query\_id = on}, que dá a cada comando um
+identificador do seu formato, e o \texttt{auto\_explain} com \texttt{log\_analyze = on},
+\texttt{log\_timing = off} e saída em JSON; a configuração completa está no Apêndice A. Do plano
+saem as linhas retornadas, as linhas afetadas por \texttt{INSERT}, \texttt{UPDATE} e
+\texttt{DELETE} e as tabelas acessadas. A conferência com o cliente mostrou contagens idênticas,
+por exemplo 51.805 linhas no plano e no cliente para uma leitura completa da tabela de
+locações. O custo dessa instrumentação foi medido com uma carga fixa de 1.000 comandos,
+repetida cinco vezes em ordem rotativa para cada configuração (\autoref{tab:custo}).
+
+\begin{table}[htb]
+    \centering
+    \ABNTEXfontereduzida
+    \begin{minipage}{\textwidth}
+        \caption{\label{tab:custo}Custo do registro de log por configuração}
+        \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lrrrr}
+            \toprule
+            \textbf{Configuração} & \textbf{Mediana ($\mu$s)} & \textbf{p95 ($\mu$s)} &
+            \textbf{Aumento} & \textbf{Bytes/comando} \\
+            \midrule
+            sem registro de comandos                & 790,3 & 2.235,6 & ---      & 0,5      \\
+            só comandos                             & 821,9 & 2.266,9 & +4,0\%   & 539,2    \\
+            comandos e \texttt{auto\_explain} (adotada) & 865,2 & 2.995,4 & +9,5\%   & 10.079,0 \\
+            \texttt{auto\_explain} com cronometragem & 919,9 & 3.142,5 & +16,4\%  & 11.348,6 \\
+            \texttt{auto\_explain} em texto          & 842,4 & 2.640,7 & +6,6\%   & 3.767,1  \\
+            \bottomrule
+        \end{tabular*}
+        \legend{Fonte: Própria do autor (2026).}
+        \legend{Nota: latência medida no cliente; o aumento é o da mediana em relação à
+        configuração sem registro de comandos.}
+    \end{minipage}
+\end{table}
+
+A configuração adotada custa cerca de 10\% na latência mediana e gera cerca de 10~KB de log por
+comando. Medições anteriores variaram alguns pontos percentuais, então os valores devem ser
+lidos como ordem de grandeza. O JSON foi preferido ao texto, apesar do volume maior, porque
+entrega tabelas e contagens como campos; esse custo é a principal limitação prática do registro
+de linhas, e a ablação, adiante, mede o que se perde sem ele.
+
+%-------------------------------------------------------------------------------
+% Modelagem e Arquitetura
+%-------------------------------------------------------------------------------
+\subsection{Modelagem e arquitetura}
+\label{sec:modelagem-e-arquitetura}
+
+A \autoref{fig:fluxo} mostra o fluxo completo. Um simulador gera a agenda de acessos de usuários
+e anomalias, executa os comandos em um servidor PostgreSQL real e guarda os rótulos em um
+manifesto à parte. O servidor grava o \textit{jsonlog}, que é a única entrada do SACLA; o
+manifesto é lido apenas pela avaliação.
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}{\textwidth}
+        \caption{\label{fig:fluxo}Fluxo do experimento: do simulador ao relatório}
+        \includegraphics[width=\textwidth]{figuras/04-desenvolvimento/fluxo.png}
+        \par
+        \legend{Fonte: Própria do autor (2026).}
+    \end{minipage}
+\end{figure}
+
+\subsubsection{Laboratório de simulação}
+
+O laboratório tem 10 usuários em 5 papéis, cada um com privilégios mínimos concedidos por
+\texttt{GRANT} (\autoref{qdr:perfis}). As ações de cada usuário chegam como um processo de
+Poisson, com taxa que varia de um dia para outro, e cada ação se traduz em um ou mais comandos
+SQL sorteados de um catálogo de consultas realistas sobre a Pagila. Cada usuário tem um gerador
+aleatório próprio, derivado da semente da simulação e do seu nome, de modo que mudar um usuário
+não altera o tráfego dos demais. A origem varia porque o contêiner que executa a simulação está
+em três redes Docker (local, de aplicação e externa), e cada conexão escolhe a rede de acordo
+com o perfil. Para que nenhuma anomalia fosse separável por um único atributo trivial, o tráfego
+normal inclui ruído legítimo: erros de digitação, senhas digitadas errado, tentativas
+ocasionais em tabelas sem permissão, hora extra, uma extração semanal grande dos analistas e a
+rotina noturna volumosa do serviço \textit{batch}.
+
+\begin{quadro}[htb]
+    \centering
+    \ABNTEXfontereduzida
+    \begin{minipage}{\textwidth}
+        \caption{\label{qdr:perfis}Papéis e rotinas dos usuários simulados}
+        \begin{tabular}{|L{2.4cm}|c|L{7.6cm}|L{2.9cm}|}
+            \hline
+            \textbf{Papel} & \textbf{Usuários} & \textbf{Rotina} & \textbf{Origem} \\
+            \hline
+            atendente & 4 & turnos das 8h às 14h ou das 13h às 19h, de segunda a sábado;
+            cadastro, locações e pagamentos & rede local \\
+            \hline
+            gerente & 2 & das 9h às 18h, de segunda a sexta, com hora extra ocasional; consultas
+            amplas, alterações de cadastro e estornos & local (10\% externa) \\
+            \hline
+            analista & 2 & das 9h às 18h, de segunda a sexta; só leitura de dados agregados e
+            relatórios & local (20\% externa) \\
+            \hline
+            serviço web & 1 & 24 horas, com pico às 20h; catálogo, disponibilidade e locação
+            pela internet & rede de aplicação \\
+            \hline
+            serviço \textit{batch} & 1 & rotina diária às 2h; leituras grandes, atualização em
+            lote e de uma visão materializada & rede de aplicação \\
+            \hline
+        \end{tabular}
+        \legend{Fonte: Própria do autor (2026).}
+    \end{minipage}
+\end{quadro}
+
+Foram definidos seis tipos de anomalia, cada um em três intensidades, e um sétimo tipo,
+\textbf{inédito}, que só aparece no teste (\autoref{qdr:anomalias}). O tipo inédito não foi
+usado para escrever as regras da linha de base nem para ajustar o modelo: representa um acesso
+que não fere nenhuma permissão e não tem volume extremo em nenhum comando isolado. Em 28 dias
+simulados, há 20 cenários no período de treino, simulando a contaminação que um histórico real
+teria; 5 por tipo e intensidade na validação (90); e 8 por tipo e intensidade no teste (144),
+mais 12 do tipo inédito.
+
+\begin{quadro}[htb]
+    \centering
+    \ABNTEXfontereduzida
+    \begin{minipage}{\textwidth}
+        \caption{\label{qdr:anomalias}Tipos de anomalia injetados e as suas intensidades}
+        \begin{tabular}{|L{3.0cm}|L{6.8cm}|L{4.8cm}|}
+            \hline
+            \textbf{Tipo} & \textbf{Descrição} & \textbf{Baixa / média / alta} \\
+            \hline
+            rajada & taxa de comandos muito acima da normal do usuário, por 3 a 8 minutos &
+            3$\times$ / 8$\times$ / 20$\times$ \\
+            \hline
+            fora do horário & sessão em horário em que o usuário nunca trabalha &
+            5 / 20 / 60 comandos \\
+            \hline
+            volume alto & leitura de muitas linhas & 2 mil / 10 mil linhas / tabelas inteiras \\
+            \hline
+            sem permissão & tentativas em tabelas sem \texttt{GRANT} & 1 a 2 / 5 / 15 tentativas \\
+            \hline
+            falha de autenticação & tentativas de \textit{login} com senha errada &
+            3 / 10 / 40 tentativas \\
+            \hline
+            DML incomum & \texttt{UPDATE} ou \texttt{DELETE} permitido, em volume atípico &
+            5 / 50 / 500 linhas \\
+            \hline
+            leitura atípica (inédito) & paginação lenta de tabelas permitidas, em horário e
+            ritmo normais & 8 / 20 / 40 páginas \\
+            \hline
+        \end{tabular}
+        \legend{Fonte: Própria do autor (2026).}
+    \end{minipage}
+\end{quadro}
+
+Quatro semanas de atividade não podem ser executadas em tempo real. A agenda é gerada em tempo
+simulado, os eventos são executados em sequência, em cerca de 100 segundos, e cada linha do log
+recebe depois o horário simulado do seu evento, ligado a ela por um comentário opaco acrescentado
+ao comando e removido no remapeamento. O log remapeado tem exatamente o formato do
+\textit{jsonlog} original. Verificações automáticas acompanham cada simulação: nenhuma linha de
+cliente fica sem evento, a ordem cronológica é preservada e o manifesto é coerente com o log. Na
+simulação de referência, as 207.769 linhas de cliente foram remapeadas, e as contagens de linhas
+dos planos coincidiram com as recebidas pelo cliente em 94.174 comparações.
+
+\subsubsection{Arquitetura do SACLA}
+
+O SACLA tem quatro módulos: leitura, eventos, atributos e modelo. O módulo de leitura percorre os
+arquivos do \textit{jsonlog}, inclusive comprimidos, na ordem de rotação, e conta e ignora linhas
+malformadas. O de eventos transforma as linhas em comandos concluídos, comandos com erro, falhas
+de autenticação, conexões e desconexões, associa cada plano do \texttt{auto\_explain} ao seu
+comando pela sessão e pelo texto e classifica cada comando como \texttt{SELECT},
+\texttt{INSERT}, \texttt{UPDATE}, \texttt{DELETE}, DDL ou outro. O de atributos agrega os
+eventos por usuário em janelas fixas de cinco minutos, alinhadas ao relógio, e calcula os 28
+atributos do \autoref{qdr:atributos}. O de modelo treina o \iforest{}, define o limiar, explica
+os alertas e gera o relatório.
+
+\begin{quadro}[htb]
+    \centering
+    \ABNTEXfontereduzida
+    \begin{minipage}{\textwidth}
+        \caption{\label{qdr:atributos}Atributos calculados para cada usuário e janela de cinco
+        minutos}
+        \begin{tabular}{|L{4.0cm}|L{11.1cm}|}
+            \hline
+            \textbf{Grupo} & \textbf{Atributos} \\
+            \hline
+            Volume de comandos & total; por tipo (\texttt{SELECT}, \texttt{INSERT},
+            \texttt{UPDATE}, \texttt{DELETE}, DDL, outros) \\
+            \hline
+            Erros e acesso & comandos com erro; erros de permissão; falhas de autenticação;
+            conexões \\
+            \hline
+            Dados & linhas retornadas (soma e máximo); linhas afetadas \\
+            \hline
+            Desempenho & duração média, máxima e percentil 95 dos comandos \\
+            \hline
+            Diversidade & tabelas distintas; endereços IP distintos \\
+            \hline
+            Tempo & hora do dia (seno e cosseno); fim de semana \\
+            \hline
+            Relativos ao histórico do usuário & $z$ robusto de comandos e de linhas retornadas;
+            raridade da hora; frações de tabelas, IPs e formatos de consulta nunca vistos \\
+            \hline
+        \end{tabular}
+        \legend{Fonte: Própria do autor (2026).}
+    \end{minipage}
+\end{quadro}
+
+Os seis atributos relativos tratam as anomalias contextuais, comparando a janela com o histórico
+do próprio usuário $u$. O $z$ robusto de comandos de uma janela com $x$ comandos é
+
+\begin{equation}
+    z_u(x) = \frac{x - \mathrm{med}_u}{\max\left(1{,}4826 \cdot \mathrm{MAD}_u,\ 1\right)},
+    \label{eq:zrobusto}
+\end{equation}
+
+\noindent em que $\mathrm{med}_u$ e $\mathrm{MAD}_u$ são a mediana e o desvio absoluto mediano
+do usuário; o de linhas usa $\ln(1 + \text{linhas retornadas})$. A raridade da hora $h$ é
+
+\begin{equation}
+    r_u(h) = -\ln \frac{n_u(h) + 1}{N_u + 24},
+    \label{eq:raridade}
+\end{equation}
+
+\noindent em que $n_u(h)$ é o número de janelas do histórico do usuário na hora $h$ e $N_u$ o
+total, com suavização de Laplace. As frações de novidade são as frações de tabelas, de endereços
+IP e de formatos de consulta (pelo \texttt{query\_id}) da janela que nunca apareceram no
+histórico do usuário. O histórico usa apenas janelas do período de treino, o que é verificado por
+testes automatizados, e um usuário sem histórico recebe uma referência neutra.
+
+O modelo é o \iforest{} do scikit-learn, treinado com todas as janelas do treino, sem rótulos,
+com a transformação $\ln(1+x)$ nas contagens. O escore é o oposto de \texttt{score\_samples}, de
+modo que valores maiores indicam janelas mais atípicas, e uma janela gera alerta quando o escore
+passa de um limiar explícito. Cada alerta é explicado pelos atributos mais raros para aquele
+usuário: para cada atributo, mede-se a fração das janelas do histórico com valor maior ou igual
+ao da janela, e entram até três atributos com essa fração abaixo de 5\%. O texto é escrito para
+quem analisa, por exemplo ``linhas retornadas (soma): 112.507 (acima do máximo do histórico;
+mediana 61, máximo 10.072)''. A explicação descreve o que mais foge do normal do usuário, e não a
+atribuição interna do modelo; quando nenhum atributo isolado é raro, o alerta informa que a
+combinação de valores é que é incomum. Alertas seguidos do mesmo usuário, separados por no
+máximo uma janela, formam um \textbf{episódio}, que é a unidade examinada pelo analista.
+
+%-------------------------------------------------------------------------------
+% Implementação
+%-------------------------------------------------------------------------------
+\subsection{Implementação}
+\label{sec:implementacao}
+
+Três decisões de implementação têm efeito direto nos resultados. A primeira é o limiar. Na
+avaliação, ele é o de melhor F1 na validação; no uso real, sem rótulos, é o escore acima do qual
+fica uma fração fixa das janelas do próprio histórico, ou seja, o analista diz quantos alertas
+aceita receber em um período normal. Na configuração avaliada, essa fração é de 2,13\%. Os
+comandos \texttt{sacla fit} e \texttt{sacla score} aplicam esse fluxo a qualquer
+\textit{jsonlog}, sem rótulos e sem o laboratório.
+
+A segunda decisão é a mais importante, e veio de um defeito. Na primeira versão (v1), os
+atributos relativos das janelas de treino eram calculados contra o histórico inteiro, que
+incluía a própria janela. Nada no treino era ``novo'': as três frações de novidade valiam sempre
+zero, e o \iforest{}, que só corta atributos que variam na amostra, as ignorava. Forçá-las a 1
+em todas as janelas de teste não mudava nenhum escore. A correção foi comparar cada janela de
+treino com o histórico do usuário \textbf{sem o seu dia}, o que este trabalho chama de
+``deixando um dia de fora'' (\autoref{lst:fora-do-dia}). Depois dela, 83 janelas de treino
+passaram a ter IP inédito, 13 formato de consulta inédito e 2 tabela inédita, e forçar cada
+fração a 1 muda o escore em até 0,076. Treino e teste passaram a ter atributos relativos da
+mesma natureza.
+
+\begin{lstlisting}[language=Python, caption={Atributos relativos das janelas de treino, deixando um dia de fora}, label={lst:fora-do-dia}]
+def out_of_day_relative(history, settings):
+    parts = []
+    for user, frame in history.groupby("user", sort=True):
+        days = frame["window_start_local"].str[:10]
+        for day in days.unique():
+            # histórico do usuário sem o dia da janela
+            others = frame[days != day]
+            baselines = ({str(user): _baseline(others, settings)}
+                         if len(others) else {})
+            parts.append(add_relative_features(
+                frame[days == day], baselines, settings))
+    return pd.concat(parts).loc[history.index]
+\end{lstlisting}
+
+A terceira decisão é a separação entre o sistema e o laboratório. O pacote do SACLA não importa o
+simulador nem a avaliação, e um teste de arquitetura falha se isso acontecer; os rótulos vêm só
+do manifesto, e os eventos extraídos são conferidos, usuário por usuário, com o que o executor
+fez. O código tem 206 testes automatizados, verificação estática de tipos e formatação
+automática, e todo o experimento é reproduzível pelos comandos do Apêndice B.
+
+%-------------------------------------------------------------------------------
+% Resultados e Discussões
+%-------------------------------------------------------------------------------
+\subsection{Resultados e discussões}
+\label{sec:resultados-e-discussoes}
+
+Os resultados aparecem na ordem em que foram obtidos. Salvo indicação contrária, os valores
+estão em porcentagem, e os do \iforest{} são a média de dez sementes do modelo.
+
+\subsubsection{Protocolo de avaliação}
+
+Uma janela é rotulada como anômala se algum cenário do manifesto do mesmo usuário intercepta o
+seu intervalo. Os 28 dias são divididos em ordem temporal: semanas 1 e 2 para treino (9.109
+janelas, 0,37\% anômalas), semana 3 para validação (4.684 janelas, 3,76\%) e semana 4 para teste
+(4.662 janelas, 7,23\%). Os hiperparâmetros foram escolhidos só na validação, em uma grade de 54
+combinações de número de árvores, tamanho da subamostra, fração de atributos por árvore e uso da
+transformação logarítmica, cada uma com cinco sementes. A escolhida tem 200 árvores, 1.024
+amostras por árvore, 50\% dos atributos e transformação logarítmica, com F1 de 61,0\% na
+validação. No teste, cada uma das dez sementes do modelo usa o limiar escolhido na validação.
+
+O \iforest{} ajustado foi comparado com três alternativas: o \textbf{IF sem rótulos}, com os
+parâmetros padrão e o limiar no quantil de 99\% dos escores do treino; as \textbf{regras de
+especialista}, seis regras com limiares fixados antes da avaliação e estatísticas por usuário
+calculadas só no treino (três ou mais falhas de autenticação; um ou mais erros de permissão;
+comandos acima de três vezes o percentil 99 do usuário; linhas retornadas acima do máximo do
+usuário; linhas afetadas acima do máximo do usuário; e hora nunca vista para o usuário); e a
+\textbf{combinação IF $\cup$ regras}, em que uma janela gera alerta se o modelo ou qualquer regra
+a sinaliza. As regras foram escritas conhecendo os seis tipos de anomalia, o que as favorece.
+
+\subsubsection{Teste na simulação de referência}
+
+A \autoref{tab:teste} e a \autoref{fig:comparacao} mostram os quatro detectores na semana de
+teste da simulação de referência, na versão corrigida (v2).
+
+\begin{table}[htb]
+    \centering
+    \ABNTEXfontereduzida
+    \setlength{\tabcolsep}{4pt}
+    \begin{minipage}{\textwidth}
+        \caption{\label{tab:teste}Desempenho no teste da simulação de referência}
+        \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lrrrrrrr}
+            \toprule
+            \textbf{Detector} & \textbf{Precisão} & \textbf{Recall} & \textbf{F1} &
+            \textbf{FP} & \textbf{Cenários} & \textbf{ROC-AUC} & \textbf{PR-AUC} \\
+            \midrule
+            IF ajustado     & 76,5 $\pm$ 3,7 & 61,7 $\pm$ 4,3 & 68,1 $\pm$ 2,0 & 65 & 75,5 $\pm$ 4,7 & 0,953 & 0,700 \\
+            IF sem rótulos  & 69,2 $\pm$ 2,3 & 27,5 $\pm$ 2,1 & 39,3 $\pm$ 2,3 & 41 & 36,3 $\pm$ 3,6 & 0,918 & 0,507 \\
+            Regras          & 96,7           & 68,5           & 80,2           & 8  & 73,1           & ---   & ---   \\
+            IF $\cup$ regras & 80,2 $\pm$ 3,8 & 79,3 $\pm$ 1,1 & 79,7 $\pm$ 1,3 & 67 & 86,2 $\pm$ 1,3 & ---   & ---   \\
+            \bottomrule
+        \end{tabular*}
+        \legend{Fonte: Própria do autor (2026).}
+        \legend{Nota: média $\pm$ desvio-padrão nas dez sementes do modelo; as regras são
+        determinísticas. FP: falsos positivos, em janelas. A prevalência de janelas anômalas,
+        7,2\%, é a PR-AUC de um detector aleatório.}
+    \end{minipage}
+\end{table}
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}{0.85\textwidth}
+        \caption{\label{fig:comparacao}Desempenho dos detectores no teste da simulação de
+        referência}
+        \includegraphics[width=\textwidth]{figuras/04-desenvolvimento/comparacao_detectores.png}
+        \par
+        \legend{Fonte: Própria do autor (2026).}
+    \end{minipage}
+\end{figure}
+
+O \iforest{} ajustado obteve F1 de 68,1\%, com PR-AUC de 0,700, quase dez vezes a prevalência.
+As regras tiveram F1 maior, 80,2\%, sustentado por uma precisão de 96,7\%: apenas oito falsos
+positivos em toda a semana. A combinação teve F1 equivalente ao das regras, com outro perfil:
+recall bem maior (79,3\% contra 68,5\%) e a maior cobertura, 86,2\% dos cenários. O IF sem
+rótulos ficou bem abaixo (F1 de 39,3\%), mas não por ordenar mal as janelas, já que o ROC-AUC é
+alto (0,918): sem rótulos, o limiar sinaliza poucas janelas e perde recall.
+
+\subsubsection{Desempenho por tipo de anomalia}
+
+A \autoref{fig:tipo-intensidade} detalha a fração de cenários detectados por tipo e
+intensidade. O \iforest{} detecta bem o que é volumoso ou foge da rotina: acessos fora do
+horário (91\% a 100\% dos cenários), rajadas médias e altas (82,5\% a 87,5\%) e volume alto
+médio e alto (94\% a 100\%). As intensidades baixas, desenhadas para ficar na faixa do ruído
+normal, são as mais difíceis; a rajada baixa, de três vezes a taxa normal, quase não é detectada
+por nenhum detector. As regras são imbatíveis quando um único evento já é sinal forte, como
+falhas de autenticação e erros de permissão. No tipo inédito, o \iforest{} detectou 37,5\%,
+40\% e 87,5\% dos cenários de intensidade baixa, média e alta, e a combinação, de 50\% a 92,5\%.
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}{0.8\textwidth}
+        \caption{\label{fig:tipo-intensidade}Cenários detectados no teste, por tipo e
+        intensidade}
+        \includegraphics[width=\textwidth]{figuras/04-desenvolvimento/deteccao_tipo_intensidade.png}
+        \par
+        \legend{Fonte: Própria do autor (2026).}
+    \end{minipage}
+\end{figure}
+
+A \autoref{fig:if-regras} classifica cada cenário de teste conforme quem o detectou. Os que só
+o \iforest{} detecta concentram-se em rajadas (8), acessos fora do horário (4), volume alto (4)
+e no tipo inédito (4); os que só as regras detectam, em falhas de autenticação (6), DML incomum
+(4) e erros de permissão (4). Os dois detectores acertam em lugares diferentes, o que explica o
+ganho da combinação. Parte da vantagem das regras vem da limitação do \iforest{} citada no
+Referencial Teórico: os cortes ficam dentro da faixa de valores do treino, e uma janela com 300
+comandos, quando o máximo do treino era 8, percorre as árvores como uma janela de 8 comandos.
+As regras comparam diretamente com o máximo do usuário e não têm esse limite.
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}{0.9\textwidth}
+        \caption{\label{fig:if-regras}Cenários de teste detectados pelo \iforest{}, pelas regras,
+        por ambos ou por nenhum}
+        \includegraphics[width=\textwidth]{figuras/04-desenvolvimento/cenarios_if_regras.png}
+        \par
+        \legend{Fonte: Própria do autor (2026).}
+    \end{minipage}
+\end{figure}
+
+\subsubsection{Sensibilidade, robustez, custo e a correção dos atributos}
+
+Na validação, o resultado é estável quanto ao número de árvores e à fração de atributos por
+árvore. Dois parâmetros importam: subamostras de 256 janelas reduzem o F1 de validação de 61,0\%
+para 47,6\%, e não aplicar a transformação logarítmica o reduz para 56,7\%. O tamanho da janela
+troca cobertura por carga de trabalho: com 1 minuto, a validação tem 82,0\% dos cenários
+detectados e 422 alertas; com 5 minutos, 70,2\% e 191; com 15 minutos, 67,8\% e 106. A janela de
+5 minutos foi mantida como equilíbrio. Reavaliada em duas simulações novas, com outras sementes,
+a configuração congelada teve, nas três simulações, F1 de 67,2 $\pm$ 1,6 para o \iforest{} e de
+78,8 $\pm$ 4,2 para as regras: o modelo depende menos da simulação. O SACLA processa as quatro
+semanas de log, com 207.769 linhas de cliente, em cerca de 10 segundos (5,7~s de leitura, 3,5~s
+de agregação, 0,17~s de treino e 0,6~s de relatório); o custo relevante é o do registro de log
+no servidor.
+
+A correção dos atributos relativos elevou o F1 do \iforest{} no teste de 63,8\% para 68,1\% e a
+cobertura de 69,8\% para 75,5\%; nas três simulações, o F1 passou de 62,4\% para 67,2\%. O maior
+ganho foi no tipo inédito de intensidade alta, de 55\% para 87,5\% dos cenários. As regras não
+mudaram, porque usam só atributos absolutos e horas. O defeito foi encontrado sem olhar o
+desempenho e o protocolo não mudou, mas a v2 usou o teste da simulação de referência pela
+segunda vez. A validação confirmatória responde a esse uso duplo.
+
+\subsubsection{Validação confirmatória pré-registrada}
+
+Antes de gerar qualquer dado novo, um \textit{commit} fixou a configuração congelada, cinco
+sementes de simulação nunca usadas (780 cenários de teste, 60 do tipo inédito), três hipóteses,
+os testes e o nível de significância. Os testes são bicaudais, com $\alpha = 0{,}05$ e correção
+de Holm, no agregado das cinco semanas de teste; um cenário conta como detectado pelo \iforest{}
+quando o é em ao menos metade das dez sementes do modelo. Os intervalos de 95\% vêm de
+\textit{bootstrap} percentil com 2.000 reamostragens, estratificado por simulação, com blocos
+usuário--dia para as métricas por janela e cenários para a cobertura; a permutação usa os mesmos
+blocos e 10.000 permutações. As simulações de desenvolvimento, reavaliadas pelo mesmo código,
+reproduziram os números publicados, com diferença máxima de $5{,}6 \times 10^{-17}$.
+
+\begin{table}[htb]
+    \centering
+    \ABNTEXfontereduzida
+    \setlength{\tabcolsep}{3pt}
+    \begin{minipage}{\textwidth}
+        \caption{\label{tab:confirmatorio}Desempenho no agregado das simulações confirmatórias}
+        \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lrrrrr}
+            \toprule
+            \textbf{Detector} & \textbf{Precisão} & \textbf{Recall} & \textbf{F1} &
+            \textbf{Cenários} & \textbf{Tipo inédito} \\
+            \midrule
+            IF ajustado      & 74,6 [71,4; 78,0] & 59,6 [56,2; 62,8] & 66,3 [63,4; 68,9] & 69,0 [65,9; 71,9] & 50,7 [39,3; 62,0] \\
+            IF sem rótulos   & 71,7 [66,8; 76,7] & 30,9 [28,0; 34,1] & 43,2 [39,9; 46,6] & 37,5 [34,6; 40,6] & 19,3 [12,3; 26,7] \\
+            Regras           & 94,7 [93,0; 96,2] & 67,9 [63,9; 71,6] & 79,1 [76,3; 81,7] & 73,5 [70,4; 76,5] & 41,7 [30,0; 53,3] \\
+            IF $\cup$ regras & 78,8 [75,9; 81,6] & 79,3 [76,5; 82,1] & 79,0 [76,9; 81,2] & 84,4 [81,9; 86,7] & 76,7 [68,0; 85,3] \\
+            \bottomrule
+        \end{tabular*}
+        \legend{Fonte: Própria do autor (2026).}
+        \legend{Nota: entre colchetes, intervalo de confiança de 95\% por \textit{bootstrap}
+        estratificado por simulação.}
+    \end{minipage}
+\end{table}
+
+Os resultados de desenvolvimento se repetiram em dados novos (\autoref{tab:confirmatorio}): o F1
+do \iforest{} foi de 66,3\%, contra 67,3\% no agregado das simulações de desenvolvimento, e a
+combinação detectou 84,4\% dos cenários, contra 85,9\%. A \autoref{tab:hipoteses} reúne o
+resultado das hipóteses pré-registradas, inclusive as duas do tráfego não estacionário,
+apresentadas adiante, e a \autoref{fig:confirmatorio-diferencas} mostra as diferenças entre
+detectores.
+
+\begin{table}[htb]
+    \centering
+    \ABNTEXfontereduzida
+    \setlength{\tabcolsep}{3pt}
+    \begin{minipage}{\textwidth}
+        \caption{\label{tab:hipoteses}Resultado das hipóteses pré-registradas}
+        \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lL{4.6cm}rrrrl}
+            \toprule
+            & \textbf{Medida (A $\times$ B)} & \textbf{A} & \textbf{B} &
+            \textbf{A $-$ B [IC 95\%]} & \textbf{p (Holm)} & \textbf{Resultado} \\
+            \midrule
+            H1 & cenários detectados, IF $\cup$ regras $\times$ regras & 84,4 & 73,5 &
+            +10,9 [8,9; 13,0] & $<$ 0,0001 & confirmada \\
+            H2 & F1 por janela, IF $\cup$ regras $\times$ regras & 79,0 & 79,1 &
+            $-$0,1 [$-$2,3; 2,5] & 1,00 & sem diferença \\
+            H3 & tipo inédito detectado, IF $\times$ regras & 50,7 & 41,7 &
+            +9,0 [$-$9,5; 27,0] & 1,00 & não confirmada \\
+            \midrule
+            H4 & perda de F1 com mudanças de rotina, IF $\times$ regras & $-$1,7 & $-$15,9 &
+            +14,2 [5,8; 22,5] & 0,0039 & confirmada \\
+            H5 & cenários detectados com mudanças, IF $\cup$ regras $\times$ regras & 86,1 & 74,4 &
+            +11,8 [10,3; 13,3] & $<$ 0,0001 & confirmada \\
+            \bottomrule
+        \end{tabular*}
+        \legend{Fonte: Própria do autor (2026).}
+        \legend{Nota: H1 a H3 nas cinco simulações confirmatórias, com Holm sobre as três; H4 e
+        H5 nas dez sementes do tráfego não estacionário, com Holm sobre as duas. H1, H3 e H5:
+        McNemar exato; H2: permutação pareada por blocos; H4: $t$ pareado sobre a diferença das
+        diferenças por semente.}
+    \end{minipage}
+\end{table}
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}{0.9\textwidth}
+        \caption{\label{fig:confirmatorio-diferencas}Diferenças entre detectores no agregado
+        confirmatório}
+        \includegraphics[width=\textwidth]{figuras/04-desenvolvimento/confirmatorio_diferencas.png}
+        \par
+        \legend{Fonte: Própria do autor (2026).}
+        \legend{Nota: em pontos percentuais, com intervalo de 95\% por \textit{bootstrap}
+        pareado. Pontos cheios: hipóteses pré-registradas, com o p ajustado por Holm; vazios:
+        diferenças só descritivas.}
+    \end{minipage}
+\end{figure}
+
+\textbf{H1 foi confirmada.} Em 87 dos 780 cenários, só a combinação detectou; em nenhum, só as
+regras. A combinação nunca perde um cenário das regras, por construção; o teste mostra que o
+ganho não é acaso, e o intervalo dá o seu tamanho, cerca de 11 pontos. \textbf{H2 não mostrou
+diferença}, como esperado: a precisão cai 15,9 pontos e o recall sobe 11,4, e o F1 por janela
+fica igual. Para quem faz a triagem, a escolha é entre cerca de um alerta falso a cada cinco, com
+84,4\% dos cenários cobertos, e um a cada dezenove, com 73,5\%. \textbf{H3 não foi confirmada.}
+No tipo inédito, os acertos se dividem: 20 cenários só o modelo detectou e 15 só as regras,
+porque a regra de linhas acima do máximo do usuário detectou 25 dos 60 cenários inéditos. A
+vantagem do modelo vista na simulação de referência era variação daquela simulação; o que se
+sustenta é a complementaridade, já que a combinação detectou 76,7\% dos cenários inéditos.
+
+\subsubsection{Ablação de atributos}
+
+Para medir a contribuição de cada grupo de atributos, cada grupo foi retirado do modelo, um de
+cada vez, com os hiperparâmetros congelados. A análise é exploratória e usa só o treino e a
+validação das oito simulações disponíveis; o teste nunca é usado. Com todos os atributos, o F1 de
+validação é de 64,9\% e a cobertura, de 73,0\% (\autoref{tab:ablacao}).
+
+\begin{table}[htb]
+    \centering
+    \ABNTEXfontereduzida
+    \setlength{\tabcolsep}{4pt}
+    \begin{minipage}{\textwidth}
+        \caption{\label{tab:ablacao}Variação ao retirar cada grupo de atributos do \iforest{}
+        (validação)}
+        \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lrrrr}
+            \toprule
+            \textbf{Grupo retirado} & \textbf{$\Delta$ F1} & \textbf{$\Delta$ PR-AUC} &
+            \textbf{$\Delta$ cenários} & \textbf{F1 pior em} \\
+            \midrule
+            relativos ao histórico & $-$17,0 [$-$19,4; $-$14,7] & $-$0,201 & $-$4,8 [$-$8,5; $-$1,2] & 8 de 8 \\
+            horário                & $-$10,9 [$-$12,7; $-$9,1]  & $-$0,129 & $-$1,6 [$-$5,4; +2,3]  & 8 de 8 \\
+            novidade               & $-$2,6 [$-$4,2; $-$1,0]    & $-$0,029 & $-$4,0 [$-$5,2; $-$2,9] & 8 de 8 \\
+            origem                 & $-$0,9 [$-$2,6; +0,9]      & $-$0,012 & $-$2,2 [$-$4,8; +0,4]  & 6 de 8 \\
+            dependentes do \texttt{auto\_explain} & +0,1 [$-$1,3; +1,5] & +0,017 & $-$9,6 [$-$12,7; $-$6,6] & 5 de 8 \\
+            \bottomrule
+        \end{tabular*}
+        \legend{Fonte: Própria do autor (2026).}
+        \legend{Nota: $\Delta$ = variante $-$ completo, em pontos percentuais (PR-AUC em
+        unidades); entre colchetes, intervalo $t$ de 95\% entre as oito simulações.}
+    \end{minipage}
+\end{table}
+
+Os atributos relativos ao histórico são o núcleo do modelo: sem eles, o F1 cai 17 pontos, em
+todas as simulações, o que sustenta a decisão de comparar cada usuário consigo mesmo. O horário
+vem em seguida; a novidade contribui pouco, mas sempre; e a origem não tem efeito mensurável, o
+que se explica pela pouca variação que três redes simuladas produzem. Sem os atributos que
+dependem do \texttt{auto\_explain}, o F1 do modelo não muda, mas a cobertura cai. No sistema
+inteiro, em que as regras também perdem as duas regras de linhas, a combinação passa de 85,3\%
+para 70,2\% dos cenários detectados, com a perda concentrada em volume alto (de 89,0\% para
+35,5\%) e DML incomum (de 69,5\% para 32,5\%). Os cerca de 10\% de latência do
+\texttt{auto\_explain} compram, portanto, cerca de 15 pontos de cobertura, justamente nos casos
+de extração de dados e de alteração em massa.
+
+\subsubsection{Tráfego não estacionário}
+
+A principal ameaça à validade de dados sintéticos são usuários regulares demais. Um segundo
+pré-registro fixou, antes de qualquer simulação, um catálogo de sete mudanças legítimas de
+rotina: troca de turno, férias, pico de movimento, crescimento gradual do serviço web, trabalho
+remoto (\textit{home office}), uma nova rotina de relatório em tabelas nunca usadas e um plantão
+de fim de semana. O registro indicou, para cada mudança, o detector que ela deveria afetar,
+inclusive algumas que só o \iforest{} enxerga. As janelas afetadas continuam rotuladas como
+normais, e o plano sorteado fica em um arquivo à parte, usado só na análise. Dez sementes foram
+simuladas sem e com as mudanças.
+
+\begin{table}[htb]
+    \centering
+    \ABNTEXfontereduzida
+    \setlength{\tabcolsep}{4pt}
+    \begin{minipage}{\textwidth}
+        \caption{\label{tab:deriva}Desempenho sem e com mudanças legítimas de rotina}
+        \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lrrrr}
+            \toprule
+            \textbf{Detector} & \textbf{F1 sem $\rightarrow$ com} & \textbf{Perda de F1 [IC 95\%]} &
+            \textbf{Precisão sem $\rightarrow$ com} & \textbf{Cenários sem $\rightarrow$ com} \\
+            \midrule
+            IF ajustado      & 66,2 $\rightarrow$ 64,5 & $-$1,7 [$-$4,1; +0,7]   & 75,6 $\rightarrow$ 72,1 & 70,0 $\rightarrow$ 71,0 \\
+            IF sem rótulos   & 41,2 $\rightarrow$ 37,8 & $-$3,4 [$-$6,8; $-$0,0] & 70,0 $\rightarrow$ 64,6 & 36,8 $\rightarrow$ 36,1 \\
+            Regras           & 80,0 $\rightarrow$ 64,1 & $-$15,9 [$-$23,7; $-$8,1] & 94,0 $\rightarrow$ 61,7 & 74,7 $\rightarrow$ 74,4 \\
+            IF $\cup$ regras & 79,6 $\rightarrow$ 65,3 & $-$14,2 [$-$21,5; $-$7,0] & 79,2 $\rightarrow$ 56,7 & 85,4 $\rightarrow$ 86,1 \\
+            \bottomrule
+        \end{tabular*}
+        \legend{Fonte: Própria do autor (2026).}
+        \legend{Nota: média nas dez sementes de simulação; intervalo $t$ de 95\%.}
+    \end{minipage}
+\end{table}
+
+\textbf{H4 foi confirmada} (\autoref{tab:deriva}). O \iforest{} perdeu 1,7 ponto de F1, com
+intervalo que inclui zero, e as regras perderam 15,9; a diferença das diferenças foi de +14,2
+pontos. Com as mudanças, o F1 das regras (64,1\%) cai ao nível do \iforest{} (64,5\%).
+\textbf{H5 também foi confirmada}: a combinação continua detectando cerca de 12 pontos a mais de
+cenários que as regras. Nenhum detector perdeu cobertura; as mudanças geram alarmes falsos, e
+não perda de detecção. A \autoref{fig:deriva-alarmes} mostra onde estão esses alarmes.
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}{0.9\textwidth}
+        \caption{\label{fig:deriva-alarmes}Alarmes falsos nas janelas de teste afetadas por cada
+        mudança de rotina}
+        \includegraphics[width=\textwidth]{figuras/04-desenvolvimento/deriva_alarmes.png}
+        \par
+        \legend{Fonte: Própria do autor (2026).}
+        \legend{Nota: nas férias o usuário não acessa o banco, então não há janelas afetadas.}
+    \end{minipage}
+\end{figure}
+
+A perda das regras vem quase toda de uma única mudança. Na troca de turno, a regra de hora nunca
+vista dispara em toda janela de um horário que o usuário não tinha no treino: 32,5\% das janelas
+afetadas viram alarmes falsos, que respondem por 91\% dos alarmes falsos das regras. Nas outras
+mudanças, as regras são tão ou mais robustas que o \iforest{}, abaixo de 0,5\% em crescimento,
+\textit{home office}, nova rotina e plantão. O \iforest{} sofre um pouco mais nas mudanças que só
+ele enxerga, como previsto no pré-registro, mas com taxas de 0,8\% a 4,3\%, próximas da sua taxa
+de base de 1,9\%.
+
+\subsubsection{Relatório explicado e ferramenta de apoio}
+
+No teste da simulação de referência, o relatório reuniu 295 janelas sinalizadas em 195
+episódios: 125 contêm ao menos uma janela de cenário anômalo, e 70 não contêm nenhuma. Os
+comandos \texttt{sacla fit} e \texttt{sacla score}, aplicados aos mesmos logs, reproduziram
+exatamente os escores do modelo avaliado, o que garante que o caminho de uso real é o mesmo que
+foi medido. Os seis episódios de maior escore são a rotina noturna legítima do serviço
+\textit{batch}, um por noite. A explicação mostra o motivo: o lote passou a ler entre 4.290 e
+4.619 linhas, acima do máximo do histórico (4.014), porque as tabelas de locações e pagamentos
+crescem ao longo da simulação. É uma deriva lenta dos dados, não uma anomalia de acesso, e a
+explicação permite descartá-la rapidamente (\autoref{fig:relatorio}).
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}{0.62\textwidth}
+        \caption{\label{fig:relatorio}Trecho do relatório de anomalias em HTML}
+        \includegraphics[width=\textwidth]{figuras/04-desenvolvimento/relatorio.png}
+        \par
+        \legend{Fonte: Própria do autor (2026).}
+    \end{minipage}
+\end{figure}
+
+Fora da avaliação, foi construída uma ferramenta de apoio: um monitor que aplica o mesmo
+detector às janelas de cinco minutos assim que elas fecham, em lotes, e um painel local,
+acessível só na própria máquina, com os alertas explicados e a triagem de cada um (em análise,
+suspeito confirmado ou falso positivo), mostrado na \autoref{fig:painel}. Nenhum número deste
+trabalho vem dessa ferramenta, e ela não altera o modelo avaliado. Na semana de teste
+reproduzida, o monitor gerou exatamente os mesmos alertas que o \texttt{sacla score} em lote:
+296 janelas, uma a mais que o relatório da avaliação, porque no uso real o limiar é definido sem
+rótulos.
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}{0.9\textwidth}
+        \caption{\label{fig:painel}Tela de alertas do painel local}
+        \includegraphics[width=\textwidth]{figuras/04-desenvolvimento/painel.png}
+        \par
+        \legend{Fonte: Própria do autor (2026).}
+    \end{minipage}
+\end{figure}
+
+\subsubsection{Discussão e ameaças à validade}
+
+Os resultados não sustentam trocar regras simples por aprendizado de máquina, e sim combinar as
+duas abordagens. Regras de limiar fixo são imbatíveis para sinais inequívocos, como falhas de
+autenticação em série e tentativas sem permissão: custam pouco, quase não erram e qualquer
+administrador as entende. O \iforest{} acrescenta o que as regras não foram escritas para ver,
+como rajadas moderadas, leituras fora do padrão e combinações incomuns de atributos, e degrada de
+forma mais suave quando a rotina muda. Uma regra de ``hora nunca vista'' é razoável enquanto os
+horários são estáveis e vira fonte de alarmes falsos assim que a escala muda. Em relação aos
+trabalhos que modelam o papel a partir da sintaxe das consultas
+\cite{kamra2008,shebaro2013,ronao2016}, o SACLA capta volume, horário, origem e falhas de
+autenticação, que não aparecem no texto de uma consulta; em contrapartida, não verifica se a
+consulta é típica do papel, o que esses trabalhos fazem. Os números não são diretamente
+comparáveis, porque cada trabalho usa dados e anomalias próprios.
+
+As principais ameaças à validade são as seguintes:
+
+\begin{enumerate}[label=\alph*)]
+    \item \textbf{dados sintéticos}: usuários reais variam mais, o que tende a reduzir a
+          precisão de qualquer detector; o cenário com mudanças confirmou isso para as regras,
+          mas o catálogo de mudanças também foi escrito pelo autor;
+    \item \textbf{mesmo autor nos dois lados}: anomalias, atributos e regras foram desenhados
+          pela mesma pessoa; o tipo inédito e as expectativas registradas antes dos dados
+          mitigam, mas não eliminam, esse viés, que favorece as regras;
+    \item \textbf{execução sequencial}: não há concorrência real entre sessões, e as durações
+          são medidas sem contenção;
+    \item \textbf{validade externa}: uma base pequena, um único SGBD e dez usuários;
+          organizações reais têm centenas de usuários, credenciais compartilhadas por aplicações
+          e padrões sazonais mais longos que quatro semanas;
+    \item \textbf{validade de conclusão}: os intervalos por \textit{bootstrap} tratam as
+          simulações como estratos fixos e medem a incerteza das janelas e dos cenários; a
+          variação entre simulações entra no teste $t$ de H4. No tipo inédito, só 35
+          discordantes não permitem distinguir uma diferença de nove pontos do acaso, e a
+          ausência de significância não prova que os detectores sejam iguais.
+\end{enumerate}
